@@ -5,7 +5,7 @@ import "./MpcCore.sol";
 
 /**
  * @title DecryptionCaller — COTI Native shim
- * @dev Port-experiment stand-in for Soda's async decryption oracle, which is not
+ * @dev Port-experiment stand-in for the upstream async decryption oracle, which is not
  *      published. COTI decrypts synchronously via `MpcCore.decrypt`, so a request is
  *      opened, resolved and delivered to its callback inside a single transaction.
  *      This is the B4 "drop the async apparatus" collapse, expressed as the smallest

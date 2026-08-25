@@ -1,7 +1,7 @@
 /**
  * COTI-native tests for the ported PrivateToken.
  *
- * Soda's suites (`private-token-transfer.tests.ts`, `private-token-max-balance-compliance.tests.ts`)
+ * The upstream suites (`private-token-transfer.tests.ts`, `private-token-max-balance-compliance.tests.ts`)
  * are gated on RUN_MPC_SEPOLIA_TESTS and reach their bubble proxy for key material and
  * decryption. This file replaces that transport with local crypto and targets the paths the
  * workplan flagged as unverified after B6 — above all the `checkedSubWithOverflowBit`

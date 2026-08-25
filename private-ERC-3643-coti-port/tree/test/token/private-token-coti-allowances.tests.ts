@@ -196,7 +196,7 @@ describe('PrivateToken on COTI — allowances, batch, recovery', function () {
   });
 
   /**
-   * These entry points take `gtUint256`, which on Soda's bubble was a durable handle a caller
+   * These entry points take `gtUint256`, which on the upstream bubble network was a durable handle a caller
    * could hold and pass back. COTI garbled values live only inside the transaction that made
    * them, so no external caller can produce one. The functions are therefore dead on COTI and
    * need `itUint256` parameters — a port defect, not a test gap.

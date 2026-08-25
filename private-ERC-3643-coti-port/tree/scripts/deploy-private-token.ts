@@ -49,7 +49,7 @@ async function main() {
   await registry.deployed();
   console.log(`registry   ${registry.address}`);
 
-  // 2. Compliance. MaxBalancePrivateCompliance is the one module Soda ported; it keeps an
+  // 2. Compliance. MaxBalancePrivateCompliance is the one module upstream ported; it keeps an
   //    encrypted shadow ledger, which is the dual-ledger problem solved under encryption.
   const Compliance = await ethers.getContractFactory('MaxBalancePrivateCompliance');
   const compliance = await Compliance.deploy();

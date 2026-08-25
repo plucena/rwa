@@ -1,8 +1,8 @@
 /**
  * Private Token — transfers, allowances, freezing, mint/burn and batch operations.
  *
- * A rewrite of Soda Labs' suite of the same name against COTI. Theirs could not simply be
- * repointed: it was written for a storage model this port removed. Soda held durable
+ * A rewrite of the upstream suite of the same name against COTI. Theirs could not simply be
+ * repointed: it was written for a storage model this port removed. Upstream held durable
  * `gtUint256` handles in storage and decrypted a handle through their bubble proxy, whereas
  * COTI garbled values do not survive a transaction, so storage holds `ctUint256` decrypted
  * locally. Their inputs also carried no function selector, which COTI binds into the signature.
@@ -369,7 +369,7 @@ describe('Private Token - Transfers', function () {
   });
 
   /**
-   * Soda's suite drives these with `gtUint256` handles held across transactions. COTI garbled
+   * The upstream suite drives these with `gtUint256` handles held across transactions. COTI garbled
    * values exist only inside the transaction that created them, so no external caller can
    * produce one and these entry points are unreachable. They need `itUint256` parameters.
    * Asserted rather than deleted so the defect cannot be quietly forgotten.

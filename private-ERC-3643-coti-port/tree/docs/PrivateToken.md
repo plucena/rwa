@@ -782,7 +782,7 @@ function reencryptFrozenTokens(address _userAddress) external nonpayable returns
 
 Re-encrypt a holder&#39;s frozen amount to the caller&#39;s key.
 
-*The on-demand half of the B2 design. Agents are a role and therefore an unbounded      reader set, so they get no eager slot; an entitled caller mints its own copy here.      Entitlement is enforced in Solidity — this `require` is the access control that      Soda&#39;s MPC-layer `permit` used to provide.      Note the trade this makes: calling it is a transaction, so it records on-chain that      the caller read this holder&#39;s record. That metadata cost is why the holder, sender,      receiver, owner and spender copies are written eagerly instead.*
+*The on-demand half of the B2 design. Agents are a role and therefore an unbounded      reader set, so they get no eager slot; an entitled caller mints its own copy here.      Entitlement is enforced in Solidity — this `require` is the access control that      the upstream MPC-layer `permit` used to provide.      Note the trade this makes: calling it is a transaction, so it records on-chain that      the caller read this holder&#39;s record. That metadata cost is why the holder, sender,      receiver, owner and spender copies are written eagerly instead.*
 
 #### Parameters
 

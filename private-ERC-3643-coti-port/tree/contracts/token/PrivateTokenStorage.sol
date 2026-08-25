@@ -122,7 +122,7 @@ contract PrivateTokenStorage {
 
     /**
      * @dev Canonical encrypted zero.
-     *      Under Soda's model this was a long-lived `gtUint256` handle held in storage. COTI
+     *      Under the upstream model this was a long-lived `gtUint256` handle held in storage. COTI
      *      `gt` values are transient within a transaction, so it is minted per call by
      *      `_zero()` instead. The slot is retained to preserve the storage layout.
      */
