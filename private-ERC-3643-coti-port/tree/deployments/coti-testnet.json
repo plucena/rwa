@@ -1,0 +1,18 @@
+{
+  "network": "coti-testnet",
+  "chainId": 7082400,
+  "deployedAt": "2026-08-09T18:14:53.013Z",
+  "deployer": "0xAb81c57CCc578a5636BFF47B896BEC6Af1c30012",
+  "evmVersion": "paris",
+  "solc": "0.8.25",
+  "contracts": {
+    "PrivateToken": "0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7",
+    "MaxBalancePrivateCompliance": "0xc3b5F4eFe6954EC39598D83b5Ea033273eefB917",
+    "MockPrivateIdentityRegistry": "0x05f99994eF7E27792C36353065A6E12Ba9f2bEF7"
+  },
+  "token": {
+    "name": "Private T-REX Port",
+    "symbol": "pTREX",
+    "decimals": 8
+  }
+}

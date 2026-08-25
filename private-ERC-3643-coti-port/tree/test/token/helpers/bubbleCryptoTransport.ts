@@ -1,0 +1,626 @@
+/**
+ * Transport (HTTP proxy, provider) + crypto for Bubble tests.
+ * Deploy, delays, receipt helpers, and chai-style helpers: sibling `testHelpers.ts` in this folder.
+ */
+import hre from "hardhat";
+import fetch from "node-fetch";
+import * as https from "https";
+import { Wallet, HDNodeWallet, utils, BigNumber } from "ethers";
+
+/** ethers v5: `getBytes` / `solidityPacked` live on `utils` (v6 moved them to top-level). */
+function getBytes(data: string | Uint8Array): Uint8Array {
+  return new Uint8Array(utils.arrayify(data));
+}
+
+function solidityPacked(types: string[], values: unknown[]): string {
+  return utils.solidityPack(types, values as any[]);
+}
+
+function makeNoKeepAliveHttpsAgent() {
+  // Prevent lingering sockets/open handles in Node test runners.
+  return new https.Agent({ keepAlive: false });
+}
+
+import {
+  generateRSAKeyPair,
+  reconstructUserKey,
+  decrypt,
+  encrypt
+} from "soda-sdk";
+
+/** One limb in soda-sdk encrypt output: ciphertext block or nonce `r` (bytes). */
+const AES_LIMB_BYTES = 16;
+/** Single-block payload: `[cipher][r]` (128-bit plaintext after decrypt). */
+const ENCRYPTED_SINGLE_OUTPUT_BYTES = AES_LIMB_BYTES * 2;
+/** Two-block payload: two `[cipher][r]` pairs (256-bit plaintext after decrypt). */
+const ENCRYPTED_DOUBLE_OUTPUT_BYTES = AES_LIMB_BYTES * 4;
+
+/** RSA-encrypted key share size in onboard response (bytes). */
+const RSA_CIPHERTEXT_BYTES = 256;
+
+/** AES-128 key as lowercase hex string (16 bytes → 32 hex characters). */
+const AES_KEY_HEX_CHARS = 32;
+
+/** 128-bit plaintext in big-endian wire format (bytes). */
+const UINT128_BYTES = 16;
+/** Exclusive upper bound for uint128 (`2^128`). */
+const UINT128_MAX = 2n ** 128n;
+/** Bits per uint64 limb when splitting a uint128. */
+const UINT64_BITS = 64n;
+/** Low 64 bits of a uint128: `(1 << 64) - 1`. */
+const UINT64_MASK = (1n << UINT64_BITS) - 1n;
+/** Byte offset of the low uint64 in a big-endian uint128. */
+const UINT128_LOW_U64_BYTE_OFFSET = 8;
+
+/** 256-bit plaintext in big-endian wire format (bytes). */
+const UINT256_BYTES = 32;
+/** Exclusive upper bound for uint256 (`2^256`). */
+const UINT256_MAX = 2n ** 256n;
+/** Hex digits for a full uint256 value (no `0x`). */
+const UINT256_HEX_CHARS = 64;
+/** First / second half of a uint256 plaintext (bytes), one AES block each. */
+const UINT256_HALF_BYTES = AES_LIMB_BYTES;
+/** Concatenated [cipher][r] for one half of a uint256 encrypt (32 bytes). */
+const ENCRYPT_HALF_UINT256_BYTES = AES_LIMB_BYTES * 2;
+
+/** Truncate `0x`-prefixed handle hex for log lines (full value is 66 chars). */
+const HANDLE_HEX_LOG_PREFIX_CHARS = 20;
+
+function handleHexForLog(fullHandleHex: string): string {
+  if (fullHandleHex.length <= HANDLE_HEX_LOG_PREFIX_CHARS) {
+    return fullHandleHex;
+  }
+  return `${fullHandleHex.slice(0, HANDLE_HEX_LOG_PREFIX_CHARS)}…`;
+}
+
+function normalizeProxyUrl(proxyUrl: string): string {
+  return proxyUrl.replace(/\/+$/, "");
+}
+
+function logDebug(enabled: boolean, message: string, ...args: unknown[]) {
+  if (enabled) {
+    console.log(message, ...args);
+  }
+}
+
+function logDebugError(enabled: boolean, message: string, ...args: unknown[]) {
+  if (enabled) {
+    console.error(message, ...args);
+  }
+}
+
+function bytesToBigInt(bytes: Uint8Array): bigint {
+  let result = 0n;
+  for (const byte of bytes) {
+    result = (result << 8n) | BigInt(byte);
+  }
+  return result;
+}
+
+function handleToHex(handle: bigint): string {
+  return `0x${handle.toString(16).padStart(64, "0")}`;
+}
+
+function handleToBytes(handle: bigint): Uint8Array {
+  return getBytes(handleToHex(handle));
+}
+
+function base64EncodeBytes(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return combined;
+}
+
+async function getNetworkWithTimeout(timeoutMs: number, timeoutMessage: string) {
+  let timeoutId: NodeJS.Timeout | undefined;
+  try {
+    const network = await Promise.race([
+      hre.ethers.provider.getNetwork(),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+    return network as any;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+const PROVIDER_NETWORK_TIMEOUT_MS = 30_000;
+
+/**
+ * Read `chainId` from the Hardhat provider with timeout and logging (encrypt-to-user / proxy decrypt flows).
+ */
+async function getChainIdForEncryptToUser(logPrefix: string, contextLabel: string): Promise<number> {
+  try {
+    console.log(`${logPrefix} Getting network info for ${contextLabel}`);
+    const network = await getNetworkWithTimeout(
+      PROVIDER_NETWORK_TIMEOUT_MS,
+      `${logPrefix} Network call timeout after ${PROVIDER_NETWORK_TIMEOUT_MS / 1000}s for ${contextLabel}`
+    );
+    const chainId = Number(network.chainId);
+    console.log(`${logPrefix} Got network chainId: ${chainId} for ${contextLabel}`);
+    return chainId;
+  } catch (error) {
+    console.error(`${logPrefix} Network call failed for ${contextLabel}:`, error);
+    throw error;
+  }
+}
+
+/** Retry with exponential backoff (`maxRetries` = number of retries after the first attempt). */
+export async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+      
+      // Exponential backoff: 1s, 2s, 4s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError!;
+}
+
+export async function getUserKeyViaProxy(signer: Wallet | HDNodeWallet, proxyUrl: string) {
+  const normalizedProxyUrl = normalizeProxyUrl(proxyUrl);
+  // Get signer's address
+  const userAddress = await signer.getAddress();
+  console.log(`[getUserKeyViaProxy] Starting onboarding for address ${userAddress} via ${normalizedProxyUrl}`);
+
+  // 1. Generate RSA key pair (synchronous function)
+  const { publicKey, privateKey } = generateRSAKeyPair();
+
+  // V2: Sign rsa_public_key + user_address
+  
+  // NPM package returns publicKey in DER format (binary)
+  const publicKeyDer = new Uint8Array(publicKey);
+  
+  // Convert address to bytes using ethers.getBytes like working version
+  const addressBytes = getBytes(userAddress);
+  
+  // Combine rsaPublicKeyDer + addressBytes (direct concatenation, no hashing)
+  const message = new Uint8Array(publicKeyDer.length + addressBytes.length);
+  message.set(publicKeyDer, 0);
+  message.set(addressBytes, publicKeyDer.length);
+  
+  const signature = await signer.signMessage(message);
+  const signedEK = getBytes(signature);
+
+  // 3. Prepare request data - send DER bytes
+  const rsaPublicKey = Buffer.from(publicKeyDer).toString("base64");
+  const userSignature = Buffer.from(signedEK).toString("base64");
+
+  const requestData = {
+    rsa_public_key: rsaPublicKey,
+    user_signature: userSignature,
+    address: userAddress,
+  };
+
+  const shouldRetryOnboardStatus = (status: number): boolean => {
+    return status === 408 || status === 429 || status >= 500;
+  };
+
+  const isTransientOnboardError = (err: unknown): boolean => {
+    const msg = String((err as { message?: string })?.message || err).toLowerCase();
+    return (
+      msg.includes("gateway time-out") ||
+      msg.includes("gateway timeout") ||
+      msg.includes("etimedout") ||
+      msg.includes("econnreset") ||
+      msg.includes("econnrefused") ||
+      msg.includes("fetcherror")
+    );
+  };
+
+  const result = await retryWithBackoff(async () => {
+    console.log(`[getUserKeyViaProxy] Sending onboard request to ${normalizedProxyUrl}/onboard for address ${userAddress}...`);
+    let response;
+    try {
+      response = await fetch(`${normalizedProxyUrl}/onboard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestData),
+        agent: makeNoKeepAliveHttpsAgent(),
+      });
+    } catch (error) {
+      if (isTransientOnboardError(error)) {
+        throw error;
+      }
+      throw new Error(`Onboarding failed: ${String((error as { message?: string })?.message || error)}`);
+    }
+
+    console.log(`[getUserKeyViaProxy] Received response status ${response.status} for address ${userAddress}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[getUserKeyViaProxy] Onboarding failed for address ${userAddress}: ${errorText}`);
+      if (shouldRetryOnboardStatus(response.status)) {
+        throw new Error(`Transient onboarding error HTTP ${response.status}: ${errorText}`);
+      }
+      throw new Error(`Onboarding failed: ${errorText}`);
+    }
+
+    return (await response.json()) as { rsa_ciphertexts: string; message: string };
+  }, 4, 1500);
+
+  console.log(`[getUserKeyViaProxy] Successfully onboarded address ${userAddress}`);
+
+  // 5. Process response
+  if (typeof result?.rsa_ciphertexts !== "string") {
+    throw new Error(`Onboarding response missing rsa_ciphertexts for address ${userAddress}`);
+  }
+  const rsaCiphertexts = Buffer.from(result.rsa_ciphertexts, "base64");
+  if (rsaCiphertexts.length !== RSA_CIPHERTEXT_BYTES * 2) {
+    throw new Error(
+      `Invalid rsa_ciphertexts length: expected ${RSA_CIPHERTEXT_BYTES * 2} bytes, got ${rsaCiphertexts.length}`
+    );
+  }
+  const encryptedKeyShare0 = rsaCiphertexts.slice(0, RSA_CIPHERTEXT_BYTES).toString("hex");
+  const encryptedKeyShare1 = rsaCiphertexts.slice(RSA_CIPHERTEXT_BYTES).toString("hex");
+  
+  // 6. Reconstruct user key
+  const decryptedAESKey = reconstructUserKey(privateKey, encryptedKeyShare0, encryptedKeyShare1);
+
+  return decryptedAESKey;
+}
+
+/**
+ * Helper function to decrypt a single encrypted output
+ */
+function decryptEncryptedOutput(encryptedOutput: Buffer, userAesKey: Buffer): bigint {
+  const userKeyBytes = new Uint8Array(userAesKey);
+  
+  if (encryptedOutput.length === ENCRYPTED_SINGLE_OUTPUT_BYTES) {
+    // Single block [cipher][r]
+    const cipher = new Uint8Array(encryptedOutput.slice(0, AES_LIMB_BYTES));
+    const r = new Uint8Array(encryptedOutput.slice(AES_LIMB_BYTES, ENCRYPTED_SINGLE_OUTPUT_BYTES));
+    
+    const decryptedMessage = decrypt(userKeyBytes, r, cipher);
+    
+    return bytesToBigInt(decryptedMessage);
+  } else if (encryptedOutput.length === ENCRYPTED_DOUBLE_OUTPUT_BYTES) {
+    // Two blocks: [cipherHigh][rHigh][cipherLow][rLow]
+    const cipher1 = new Uint8Array(encryptedOutput.slice(0, AES_LIMB_BYTES));
+    const r1 = new Uint8Array(encryptedOutput.slice(AES_LIMB_BYTES, AES_LIMB_BYTES * 2));
+    const cipher2 = new Uint8Array(encryptedOutput.slice(AES_LIMB_BYTES * 2, AES_LIMB_BYTES * 3));
+    const r2 = new Uint8Array(encryptedOutput.slice(AES_LIMB_BYTES * 3, ENCRYPTED_DOUBLE_OUTPUT_BYTES));
+    
+    // Use the 5-parameter version of decrypt for 256-bit values
+    const decryptedMessage = decrypt(userKeyBytes, r1, cipher1, r2, cipher2);
+    
+    return bytesToBigInt(decryptedMessage);
+  } else {
+    throw new Error(`Unexpected encrypted output length: ${encryptedOutput.length}`);
+  }
+}
+
+export async function decryptValueViaProxy(
+  handle: bigint,
+  signer: Wallet | HDNodeWallet,
+  userAesKey: Buffer,
+  proxyUrl: string,
+  debugLogging: boolean = false
+): Promise<bigint> {
+  const normalizedProxyUrl = normalizeProxyUrl(proxyUrl);
+  const userAddress = await signer.getAddress();
+  const handleHex = handleToHex(handle);
+  const handleLabel = handleHexForLog(handleHex);
+  logDebug(debugLogging, `[decryptValueViaProxy] Starting decryption for handle ${handleLabel} (address: ${userAddress})`);
+
+  const handleBytes = handleToBytes(handle);
+
+  // Sign the handle bytes
+  const signature = await signer.signMessage(handleBytes);
+
+  const chainId = await getChainIdForEncryptToUser("[decryptValueViaProxy]", `handle ${handleLabel}`);
+
+  // Prepare request data
+  const handleBase64 = base64EncodeBytes(handleBytes);
+  const userSignature = base64EncodeBytes(getBytes(signature));
+
+  logDebug(debugLogging, `[decryptValueViaProxy] Sending encrypt-to-user request to ${normalizedProxyUrl}/encrypt-to-user for handle ${handleLabel}`);
+  const data = await retryWithBackoff(async () => {
+    const response = await fetch(`${normalizedProxyUrl}/encrypt-to-user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        handle: handleBase64,
+        chain_id: chainId,
+        user_signature: userSignature,
+      }),
+      agent: makeNoKeepAliveHttpsAgent(),
+    });
+
+    logDebug(debugLogging, `[decryptValueViaProxy] Received response status ${response.status} for handle ${handleLabel}`);
+    const bodyText = await response.text();
+    if (!response.ok) {
+      logDebugError(debugLogging, `[decryptValueViaProxy] encrypt-to-user failed: status=${response.status} body=${bodyText} for handle ${handleLabel}`);
+      throw new Error(`HTTP ${response.status}: ${bodyText}`);
+    }
+
+    try {
+      return JSON.parse(bodyText) as any;
+    } catch (error) {
+      logDebugError(debugLogging, `[decryptValueViaProxy] encrypt-to-user invalid JSON response: ${bodyText} for handle ${handleLabel}`);
+      throw error;
+    }
+  });
+  if (typeof data?.output !== "string") {
+    throw new Error(`Expected output string in response, got: ${JSON.stringify(data)}`);
+  }
+  const encryptedOutput = Buffer.from(data.output, "base64");
+  logDebug(debugLogging, `[decryptValueViaProxy] Successfully decrypted handle ${handleLabel}`);
+
+  return decryptEncryptedOutput(encryptedOutput, userAesKey);
+}
+
+/**
+ * Get decryption callback tx_data via the HTTP proxy (POST /get-decryption).
+ * Used to test the GetDecryption endpoint and to submit the callback transaction
+ * (e.g. callbackUnshield) when the MPC backend has produced the decryption.
+ *
+ * @param proxyUrl Base URL of the HTTP proxy (e.g. https://proxy.bubble.sodalabs.net)
+ * @param chainId Chain ID of the network
+ * @param contractAddress Contract address (hex string with or without 0x)
+ * @param userDecryptId Decrypt request ID (e.g. from getLastDecryptRequestId() after unshield)
+ * @returns Tx data as hex string (with 0x prefix) to send as transaction data to the contract
+ */
+export async function getDecryptionTxDataViaProxy(
+  proxyUrl: string,
+  chainId: number,
+  contractAddress: string,
+  userDecryptId: bigint | number
+): Promise<string> {
+  const url = `${normalizeProxyUrl(proxyUrl)}/get-decryption`;
+  const body = {
+    chain_id: Number(chainId),
+    contract_address: contractAddress.startsWith("0x") ? contractAddress : `0x${contractAddress}`,
+    user_decrypt_id: typeof userDecryptId === "bigint" ? userDecryptId.toString() : userDecryptId,
+  };
+  // Backend/MPC can take a long time to produce decryption; use 2 min timeout
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120_000),
+    agent: makeNoKeepAliveHttpsAgent(),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`get-decryption failed: HTTP ${response.status} ${text}`);
+  }
+  const data = JSON.parse(text) as { success?: boolean; error?: string; tx_data?: string };
+  if (!data.success) {
+    throw new Error(data.error ?? "get-decryption failed");
+  }
+  if (!data.tx_data) {
+    return "0x";
+  }
+  const txDataBytes = Buffer.from(data.tx_data, "base64");
+  return "0x" + txDataBytes.toString("hex");
+}
+
+/**
+ * Batch decrypt multiple handles in a single request.
+ * This is more efficient than calling decryptValueViaProxy multiple times
+ * as it reduces network round-trips.
+ * 
+ * @param handles Array of handles to decrypt
+ * @param signer Wallet or HDNodeWallet to sign the request
+ * @param userAesKey User's AES key for decryption
+ * @param proxyUrl URL of the HTTP proxy
+ * @param debugLogging Whether to enable debug logging
+ * @returns Array of decrypted values in the same order as input handles
+ */
+export async function decryptMultipleValuesViaProxy(
+  handles: bigint[],
+  signer: Wallet | HDNodeWallet,
+  userAesKey: Buffer,
+  proxyUrl: string,
+  debugLogging: boolean = false
+): Promise<bigint[]> {
+  const normalizedProxyUrl = normalizeProxyUrl(proxyUrl);
+  const userAddress = await signer.getAddress();
+  logDebug(debugLogging, `[decryptMultipleValuesViaProxy] Starting batch decryption for ${handles.length} handle(s) (address: ${userAddress})`);
+  
+  if (handles.length === 0) {
+    return [];
+  }
+
+  const handlesBytes = handles.map(handleToBytes);
+  const concatenatedHandles = concatBytes(handlesBytes);
+
+  // Sign the concatenated handles
+  const signature = await signer.signMessage(concatenatedHandles);
+
+  const chainId = await getChainIdForEncryptToUser(
+    "[decryptMultipleValuesViaProxy]",
+    `${handles.length} handle(s)`
+  );
+
+  // Prepare request data with handles array
+  const handlesBase64 = handlesBytes.map(base64EncodeBytes);
+  const userSignature = base64EncodeBytes(getBytes(signature));
+
+  logDebug(debugLogging, `[decryptMultipleValuesViaProxy] Sending batch encrypt-to-user request to ${normalizedProxyUrl}/encrypt-to-user for ${handles.length} handle(s)...`);
+  const data = await retryWithBackoff(async () => {
+    const response = await fetch(`${normalizedProxyUrl}/encrypt-to-user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        handles: handlesBase64,
+        chain_id: chainId,
+        user_signature: userSignature,
+      }),
+      agent: makeNoKeepAliveHttpsAgent(),
+    });
+
+    logDebug(debugLogging, `[decryptMultipleValuesViaProxy] Received response status ${response.status} for ${handles.length} handle(s)`);
+    const bodyText = await response.text();
+    if (!response.ok) {
+      logDebugError(debugLogging, `[decryptMultipleValuesViaProxy] encrypt-to-user (batch) failed: status=${response.status} body=${bodyText}`);
+      throw new Error(`HTTP ${response.status}: ${bodyText}`);
+    }
+
+    try {
+      return JSON.parse(bodyText) as any;
+    } catch (error) {
+      logDebugError(debugLogging, `[decryptMultipleValuesViaProxy] encrypt-to-user (batch) invalid JSON response: ${bodyText}`);
+      throw error;
+    }
+  });
+  logDebug(debugLogging, `[decryptMultipleValuesViaProxy] Successfully received batch response for ${handles.length} handle(s)`);
+
+  // Process all outputs
+  if (!data.outputs || !Array.isArray(data.outputs)) {
+    throw new Error(`Expected outputs array in response, got: ${JSON.stringify(data)}`);
+  }
+
+  if (data.outputs.length !== handles.length) {
+    throw new Error(`Expected ${handles.length} outputs, got ${data.outputs.length}`);
+  }
+
+  // Decrypt each output
+  const decryptedValues: bigint[] = [];
+  for (const outputBase64 of data.outputs) {
+    const encryptedOutput = Buffer.from(outputBase64, 'base64');
+    const decryptedValue = decryptEncryptedOutput(encryptedOutput, userAesKey);
+    decryptedValues.push(decryptedValue);
+  }
+
+  return decryptedValues;
+}
+
+
+// Alias for backward compatibility
+export const decryptBalanceViaProxy = decryptValueViaProxy;
+
+// --- Bubble-specific message preparation for ValidateCiphertext / ValidateCiphertext256 ---
+
+/**
+ * Encrypt one ≤16-byte block and interpret `ciphertext ‖ r` as a uint256 (Bubble wire format for `itUint128` limbs).
+ */
+function encryptBlockToEncryptedUint256(keyBytes: Uint8Array, plaintextBlock: Uint8Array): bigint {
+  const { ciphertext, r } = encrypt(keyBytes, plaintextBlock);
+  const ct = Buffer.concat([ciphertext, r]);
+  return BigInt("0x" + ct.toString("hex"));
+}
+
+/**
+ * Prepares a message for ValidateCiphertext for 128-bit values.
+ */
+export function prepareMessageForBubble128(
+  plaintext: bigint,
+  signerAddress: string,
+  aesKey: string,
+  contractAddress: string
+): {
+  encryptedInt: bigint;
+  messageBytes: Uint8Array;
+} {
+  if (!utils.isAddress(signerAddress)) {
+    throw new TypeError("Invalid signer address");
+  }
+  if (typeof aesKey !== "string" || aesKey.length !== AES_KEY_HEX_CHARS) {
+    throw new TypeError("Invalid AES key length. Expected 16 bytes as hex string (32 characters).");
+  }
+  if (typeof contractAddress !== "string" || !utils.isAddress(contractAddress)) {
+    throw new TypeError("Invalid contract address");
+  }
+  if (plaintext < 0n || plaintext >= UINT128_MAX) {
+    throw new TypeError("Plaintext value must be >= 0 and < 2^128 for 128-bit values");
+  }
+
+  const plaintextBytes = Buffer.alloc(UINT128_BYTES);
+  plaintextBytes.writeBigUInt64BE(plaintext >> UINT64_BITS, 0);
+  plaintextBytes.writeBigUInt64BE(plaintext & UINT64_MASK, UINT128_LOW_U64_BYTE_OFFSET);
+
+  const keyBytes = new Uint8Array(Buffer.from(aesKey, "hex"));
+  const encryptedInt = encryptBlockToEncryptedUint256(keyBytes, new Uint8Array(plaintextBytes));
+  const messageBytes = solidityPacked(
+    ["address", "address", "uint256"],
+    [signerAddress, contractAddress, BigNumber.from(encryptedInt.toString())]
+  );
+
+  return { encryptedInt, messageBytes: getBytes(messageBytes) };
+}
+
+/**
+ * Prepares a message for ValidateCiphertext256 (256-bit values): encrypts plaintext as two blocks
+ * and returns encryptedHigh, encryptedLow, and messageBytes = abi.encodePacked(signer, contract, high, low).
+ */
+export function prepareMessageForBubble256(
+  plaintext: bigint,
+  signerAddress: string,
+  aesKey: string,
+  contractAddress: string
+): {
+  encryptedHigh: bigint;
+  encryptedLow: bigint;
+  messageBytes: Uint8Array;
+} {
+  if (!utils.isAddress(signerAddress)) {
+    throw new TypeError("Invalid signer address");
+  }
+  if (typeof aesKey !== "string" || aesKey.length !== AES_KEY_HEX_CHARS) {
+    throw new TypeError("Invalid AES key length. Expected 16 bytes as hex string (32 characters).");
+  }
+  if (typeof contractAddress !== "string" || !utils.isAddress(contractAddress)) {
+    throw new TypeError("Invalid contract address");
+  }
+  if (plaintext < 0n || plaintext >= UINT256_MAX) {
+    throw new TypeError("Plaintext value must be >= 0 and < 2^256 for 256-bit values");
+  }
+
+  const plaintextBytes = Buffer.alloc(UINT256_BYTES);
+  const hexString = plaintext.toString(16).padStart(UINT256_HEX_CHARS, "0");
+  const valueBytes = Buffer.from(hexString, "hex");
+  valueBytes.copy(plaintextBytes, UINT256_BYTES - valueBytes.length);
+
+  const keyBytes = new Uint8Array(Buffer.from(aesKey, "hex"));
+  const encryptedHigh = encryptBlockToEncryptedUint256(
+    keyBytes,
+    new Uint8Array(plaintextBytes.subarray(0, UINT256_HALF_BYTES))
+  );
+  const encryptedLow = encryptBlockToEncryptedUint256(
+    keyBytes,
+    new Uint8Array(plaintextBytes.subarray(UINT256_HALF_BYTES))
+  );
+
+  const messageBytes = solidityPacked(
+    ["address", "address", "uint256", "uint256"],
+    [
+      signerAddress,
+      contractAddress,
+      BigNumber.from(encryptedHigh.toString()),
+      BigNumber.from(encryptedLow.toString()),
+    ]
+  );
+
+  return { encryptedHigh, encryptedLow, messageBytes: getBytes(messageBytes) };
+}

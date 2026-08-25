@@ -1,0 +1,27 @@
+node_modules/
+
+# Artifacts
+build/
+bin/
+coverage/
+coverage.json
+typechain-types/
+artifacts/
+artifacts-private/
+cache-private/
+.openzeppelin/
+cache/
+docgen/
+flat/
+gasReporterOutput.json
+# contracts/bubble/  <- un-ignored in this vendored copy: the substituted COTI
+# MpcCore lives there and is the entire point of this tree. See ../README.md.
+# IDEs
+.idea/
+.vscode/
+
+# NPM
+gas-report
+/bin/
+/tmp/
+.env
