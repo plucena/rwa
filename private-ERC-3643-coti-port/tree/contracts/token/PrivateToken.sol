@@ -146,9 +146,9 @@ contract PrivateToken is IPrivateToken, AgentRoleUpgradeable, PrivateTokenStorag
     }
 
     // ------------------------------------------------------------------
-    //  B2: ciphertext storage helpers — the replacement for Soda's permit ACL
+    //  B2: ciphertext storage helpers — the replacement for the upstream permit ACL
     //
-    //  Soda held `gtUint256` handles in storage and granted read access afterwards with
+    //  Upstream held `gtUint256` handles in storage and granted read access afterwards with
     //  `permit`. COTI `gt` values are transient within a transaction and a ciphertext has
     //  exactly one reader, fixed at write time. So every value is onboarded on read and
     //  offboarded on write, and "who may read it" is decided here rather than granted later.
@@ -226,7 +226,7 @@ contract PrivateToken is IPrivateToken, AgentRoleUpgradeable, PrivateTokenStorag
      * @dev The on-demand half of the B2 design. Agents are a role and therefore an unbounded
      *      reader set, so they get no eager slot; an entitled caller mints its own copy here.
      *      Entitlement is enforced in Solidity — this `require` is the access control that
-     *      Soda's MPC-layer `permit` used to provide.
+     *      the upstream MPC-layer `permit` used to provide.
      *
      *      Note the trade this makes: calling it is a transaction, so it records on-chain that
      *      the caller read this holder's record. That metadata cost is why the holder, sender,
@@ -533,7 +533,7 @@ contract PrivateToken is IPrivateToken, AgentRoleUpgradeable, PrivateTokenStorag
         address _newWallet,
         address _investorOnchainID
     ) external override onlyAgent returns (bool) {
-        // B2: Soda compared the stored handle against its canonical zero handle — a pointer
+        // B2: upstream compared the stored handle against its canonical zero handle — a pointer
         // comparison that only worked because that handle was a stable storage value. COTI `gt`
         // values are transient, so two fresh handles are always unequal and that test would
         // always pass. The equivalent check is whether the slot was ever written; a true

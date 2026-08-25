@@ -1,7 +1,7 @@
 /**
  * COTI-native replacement for `bubbleCryptoTransport.ts`.
  *
- * Soda's tests reach an HTTP proxy on their bubble network to onboard a user key,
+ * The upstream tests reach an HTTP proxy on their bubble network to onboard a user key,
  * encrypt inputs and decrypt results. COTI needs none of that: the AES key is held by
  * the caller, encryption and decryption are local, and decryption inside a contract is
  * synchronous. This module is the whole transport layer, replaced by ~80 lines of crypto.
@@ -78,7 +78,7 @@ export function decryptUint256(
  * Build a signed `itUint256` for a specific contract *and function*.
  *
  * The selector is part of the signed message, so an input built for `transfer` cannot be
- * replayed against `approve`. This is the binding that made Soda's `isSenderPermitted`
+ * replayed against `approve`. This is the binding that made the upstream `isSenderPermitted`
  * check redundant — see the B2 notes in the workplan.
  *
  * NOTE the signature format, which is where this first went wrong: COTI's node SDK

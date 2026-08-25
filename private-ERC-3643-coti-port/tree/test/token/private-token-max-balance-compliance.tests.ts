@@ -1,7 +1,7 @@
 /**
  * Private Token — MaxBalance compliance.
  *
- * A rewrite of Soda Labs' suite of the same name against COTI, preserving its four intents.
+ * A rewrite of the upstream suite of the same name against COTI, preserving its four intents.
  * `MaxBalancePrivateCompliance` keeps an encrypted per-holder shadow ledger and answers
  * `canTransfer` without revealing the amount or the running total — the dual-ledger problem
  * solved under encryption, and the reason ERC-3643 is the hard standard to make confidential.

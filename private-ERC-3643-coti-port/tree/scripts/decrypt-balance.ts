@@ -2,7 +2,7 @@
 import hre from 'hardhat';
 import crypto from 'crypto';
 
-/** COTI/Soda scheme: ct = [cipher(16) || r(16)]; plaintext = AES-ECB(key, r) XOR cipher. */
+/** COTI ciphertext scheme: ct = [cipher(16) || r(16)]; plaintext = AES-ECB(key, r) XOR cipher. */
 function decryptLimb(ct: bigint, keyHex: string): Buffer {
   const buf = Buffer.from(ct.toString(16).padStart(64, '0'), 'hex'); // 32 bytes
   const cipher = buf.subarray(0, 16);
