@@ -170,30 +170,6 @@ The private stack **sits beside** the plaintext one rather than replacing it. A 
 who knows T-REX can diff this tree against upstream and get a clean, empty answer for
 every file they already trust.
 
-### The vendored MPC library is one commit behind upstream
-
-`contracts/bubble/MpcCore.sol` was vendored from
-[`coti-io/coti-contracts`](https://github.com/coti-io/coti-contracts). Against upstream
-`main` today it differs by **exactly one line**:
-
-```solidity
-function transferWithAllowance(gtUint128 a, gtUint8 b, gtUint8 amount, gtUint32 allowance) ...
-    // M-32: allowance tag must be SUINT32_T to match gtUint32.unwrap(allowance).
--   ... MPC_TYPE.SUINT8_T,  ARGS.BOTH_SECRET), ...   // this tree
-+   ... MPC_TYPE.SUINT32_T, ARGS.BOTH_SECRET), ...   // upstream main
-```
-
-An audit fix (tagged `M-32`) landed upstream after this tree was vendored: a mismatched
-type tag in one mixed-width `transferWithAllowance` overload.
-
-**Scope: it does not affect this port.** `PrivateToken` never calls
-`transferWithAllowance` — its only MPC transfer call site is
-`MpcCore.transfer(gtUint256, gtUint256, gtUint256)` at
-[`PrivateToken.sol:982`](private-ERC-3643-coti-port/tree/contracts/token/PrivateToken.sol#L982),
-and the affected overload is 128/8/8/32. But the vendored copy is no longer the upstream
-copy, and re-vendoring should be a deliberate step with the diff re-checked, not a silent
-refresh.
-
 ## 3. The type changes
 
 
