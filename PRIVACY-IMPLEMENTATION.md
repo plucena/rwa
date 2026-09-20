@@ -330,7 +330,18 @@ is, per §8 of the standard doc, the standard's strongest claim. Note also that 
 registry stays **cleartext by design** — `isVerified` returns a plain `bool` and
 `investorCountry` a plain `uint16`. Confidentiality here covers amounts, not eligibility.
 
-## 6. Two contracts the standard does not deploy
+## 6. The governance model: self-service for compliant accounts
+
+ERC-3643 assumes an **operator acts for the investor**. An agent decides when to mint and
+to whom; the investor's own keys sit outside the standard entirely. Both contracts in this
+section invert that: a verified account **subscribes for itself**, and **onboards its own
+key**, with no operator in the loop for either.
+
+That is the substantive change, and it is a governance change rather than a cryptographic
+one. The authority is ordinary ERC-3643 authority — `RwaSubscription` holds the token's
+agent role — but it is exercised automatically, on conditions written into the contract,
+instead of at an operator's discretion. What those conditions are, and what governance
+surface the contract does *not* have, is most of what follows.
 
 ### 6.1 `RwaSubscription` — the primary-issuance till
 
@@ -515,9 +526,12 @@ settlement.
 
 ### 6.2 `AccountOnboard`
 
-23 lines, verbatim from `coti-io/coti-contracts` with the import repointed, so each test
-signer can obtain its own AES key. Deployed for completeness; the front end does **not**
-use it, because onboarding is owned by the COTI wallet plugin, which ships its own.
+23 lines, verbatim from `coti-io/coti-contracts` with the import repointed, so a signer can
+obtain its own AES key without an operator issuing one. That is the self-service half of
+the model above, and it does happen — but **not through this deployment**. The front end
+does not touch this contract, because onboarding belongs to the COTI wallet plugin, which
+ships its own copy. This one exists for the test fixtures, where each signer needs a key of
+its own before a multi-party test means anything.
 
 ## 7. Integration traps
 
