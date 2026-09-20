@@ -620,10 +620,6 @@ COTI stack is built around:
 So an integrator's job is not to make an ERC-20 client cope. It is to use the COTI
 libraries, which already expect a 64-byte `balanceOf` and a holder-side AES key.
 
-One deviation from a standard pToken is worth knowing: this contract has **no
-`accountEncryptionAddress(address)` getter**, only the setter, so tooling that reads back
-the off-board target will fail against it.
-
 ## 8. What is deployed
 
 COTI testnet, chain `7082400`. Deployed 10 August 2026 by
