@@ -128,18 +128,17 @@ graph TB
     class ABS,MODS absent
 ```
 
-Three differences from the standard's picture are worth naming:
+Four differences from the standard's picture are worth naming:
 
 - **The identity half collapsed to one box.** In the standard, `IdentityRegistry` fans out
   to three registries and an investor-owned ONCHAINID. Here it terminates in a stored
   boolean, and nothing fans out at all.
 - **The compliance half has no modules.** `MaxBalancePrivateCompliance` *is* the rulebook,
   not a binder of rules (§4.4).
-- **`RwaSubscription` sits in the Governance box, not beside it.** The deploy script calls
-  `token.addAgent(subscription)`, so drawing it outside the box would understate what it
-  is. What is new is not the privilege but the **door**: the standard's agents are
-  discretionary actors who decide when to mint, and this one mints for anyone verified who
-  pays (§6.1).
+- **`RwaSubscription` is one of the agents.** It holds the token's `onlyAgent` mint
+  privilege, exactly as a human transfer agent does. What differs is the **door**: the
+  standard's agents are discretionary actors who decide when to mint, and this one mints
+  for anyone verified who pays (§6.1).
 - **Its two edges are both public.** Pulling a plain ERC-20 and minting as an agent — the
   atomic-settlement gain and the public-payment-leg cost, in one path (§6.1).
 
@@ -419,8 +418,7 @@ await (await token.addAgent(subscription.address)).wait();
 
 `PrivateToken.mint` is `onlyAgent`, so the subscription holds the same privilege a human
 transfer agent holds. It is not an external contract that happens to call the token — it
-is a **governance principal**, and it belongs in the Governance box of the §2 diagram
-rather than beside it.
+is a **governance principal**, which is why the §2 diagram places it among the agents.
 
 What changes is the *kind* of principal. ERC-3643 assumes agents are **discretionary
 actors**: a person or multisig decides when to mint. This one is an **automaton with a
