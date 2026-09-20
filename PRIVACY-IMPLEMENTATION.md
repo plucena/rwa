@@ -685,11 +685,7 @@ on-chain and unreadable.
   through an inbox and an MPC executor. **PoD is asynchronous by construction**: results
   arrive by callback, balances carry a pending flag rather than a value
   (`balanceOfWithStatus` returns a ciphertext *and* a bool), and a request issued against
-  an already-pending one reverts. That is a **re-architecture, not a redeploy** — and the
-  irony is that it would restore exactly the request-and-callback machinery §4.3 records
-  this port deleting, because COTI-native `MpcCore.decrypt` returns in-transaction and PoD
-  cannot.
-- **Nothing is audited.** 823k gas for one mint is a data point, not a cost model.
+  an already-pending one reverts.
 - The two original upstream suites were **rewritten against the ct model** rather than
   repointed, because they assumed durable `gtUint256` handles in storage. Every original
   test intent is preserved, including four asserting the `gtUint256` entry points are
