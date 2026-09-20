@@ -581,10 +581,31 @@ Reading a balance therefore means: call `balanceOf(address)` with the tuple ABI,
 function balanceOf(address) view returns (tuple(uint256 ciphertextHigh, uint256 ciphertextLow))
 ```
 
-This is the same shape as COTI's own `PrivateERC20`, so the COTI wallet plugin's
-`version: 256` path reads it unmodified — pass `decimals: 8`. One difference from the
-standard pToken: this contract has **no `accountEncryptionAddress(address)` getter**, only
-the setter. Tooling that reads the off-board target will fail against it.
+#### What it *is* native to
+
+Read the other way round, the token is not a broken ERC-20 — it is a **COTI private
+token**, and COTI's own tooling handles it without modification. `balanceOf` returns
+exactly the `ctUint256` shape that `PrivateERC20` returns, which is the shape the whole
+COTI stack is built around:
+
+| Tool | How it handles this token |
+| --- | --- |
+| **COTI MetaMask Snap** — `npm:@coti-io/coti-snap` | Holds the account's AES key and performs the decryption. It is key custody, not a balance viewer: it never enumerates or displays tokens |
+| **COTI privacy wallet** — `metamask.coti.io` | Built on that same Snap and the same `ctUint256` shape |
+| **`@coti-io/coti-wallet-plugin`** | Reads it unmodified through its `version: 256` path. Pass `decimals: 8` |
+
+So an integrator's job is not to make an ERC-20 client cope. It is to use the COTI
+libraries, which already expect a 64-byte `balanceOf` and a holder-side AES key.
+
+One deviation from a standard pToken is worth knowing: this contract has **no
+`accountEncryptionAddress(address)` getter**, only the setter, so tooling that reads back
+the off-board target will fail against it.
+
+**It is not ERC-7984.** That standard — OpenZeppelin and Zama's *Confidential Fungible
+Token* — represents amounts as FHE ciphertext *handles* resolved by a coprocessor. COTI's
+model is different: `ctUint256` is an AES ciphertext with exactly one reader, decrypted
+client-side by the key holder. Neither COTI's contracts nor the wallet plugin reference
+ERC-7984, and nothing here claims conformance with it.
 
 ## 8. What is deployed
 
