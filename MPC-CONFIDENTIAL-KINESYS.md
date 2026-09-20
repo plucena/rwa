@@ -16,7 +16,7 @@ Kinexys result. Where the matrix records what those five achieved, this document
 comparison: the checkmark values are rendered as graphics in the PDF and were not read.
 
 Assessed against the working tree and COTI testnet on 20 September 2026. Read
-[`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) first — every finding below is
+[`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) first — every finding below is
 evidenced there or in the contracts.
 
 ---
@@ -116,7 +116,7 @@ against a public `totalSupply` of `198213115504`. The value round-trips, and it 
 unreadable without the key.
 
 **Caveat on scope.** `totalSupply` stays a public `uint256` by deliberate design choice
-([`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) §4.3). With two funds and a
+([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) §4.3). With two funds and a
 small holder set, a public supply plus public subscription amounts narrows the search
 space for any individual position considerably. EPIC's use case assumes an institutional
 register where that inference matters.
@@ -243,7 +243,7 @@ cipher.
 Given that, the repository's actual position is the defensible one: all nine deployed
 contracts are **source-verified on cotiscan with a full bytecode match**, and the port's
 central claim is auditability — every `offBoardToUser` call site makes read access visible
-in the code that grants it ([`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md)
+in the code that grants it ([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md)
 §4.1). Obscuring the logic would forfeit that and buy nothing, since the bytecode would
 still be public.
 
@@ -282,7 +282,7 @@ Two further points an issuer would raise:
 
 - **The remediation path is broken.** `forcedTransfer` and `batchForcedTransfer` take
   `gtUint256` and are uncallable from outside
-  ([`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) §7.1). If a holder *were*
+  ([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) §7.1). If a holder *were*
   found on a sanctions list post-issuance, the agent cannot seize the position.
 - **Supervisors cannot read balances.** An agent can re-encrypt a holder's *frozen* amount
   to itself, but there is no path to a holder's balance at all (§4.1). A compliance officer
@@ -316,7 +316,7 @@ balance that results is real and valuable, but it is established by a transactio
 discloses everything EPIC asked to be hidden.
 
 This is not a contradiction of the port's own claims — `RwaSubscription.sol` carries the
-disclosure in its own header comment, and `MPC-PRIVACY-IMPLEMENTATION.md` §6 states it. EPIC
+disclosure in its own header comment, and `MPC-CONFIDENTAL-IMPLEMENTATION.md` §6 states it. EPIC
 just makes the cost legible by naming the three things separately.
 
 ## 10. Not built yet vs. cannot be built

@@ -2,7 +2,7 @@
 
 Reference for anyone reading the COTI port in [`private-ERC-3643-coti-port/`](private-ERC-3643-coti-port/).
 It describes the **plaintext standard as published**, so that
-[`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) can describe only what changes.
+[`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) can describe only what changes.
 Nothing here is COTI-specific.
 
 Verified against the EIP text and against the published `@erc3643org/erc-3643@4.1.3`
@@ -181,7 +181,7 @@ and it is the direct price of the portable-credential model in §8.
 update running state — period totals, cooldowns, holder counts. That post-hoc write is why
 compliance modules keep a **second ledger of balances** alongside the token's, and keeping
 those two ledgers consistent is the hard problem under encryption
-([`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) §4.4).
+([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) §4.4).
 
 ## 3. The transfer gate
 
@@ -213,7 +213,7 @@ move, so stateful rules (running totals, cooldowns, per-period caps) can update.
 
 **A blocked transfer reverts.** That is the standard's stated contract and it is the
 single assumption that confidentiality breaks — a revert is a public, cleartext
-disclosure of the compliance outcome. Everything in `MPC-PRIVACY-IMPLEMENTATION.md` §4 follows
+disclosure of the compliance outcome. Everything in `MPC-CONFIDENTAL-IMPLEMENTATION.md` §4 follows
 from that one line.
 
 ### How `isVerified` actually works
@@ -365,7 +365,7 @@ encryption.
 
 ## 9. What the standard assumes that encryption breaks
 
-A checklist to read `MPC-PRIVACY-IMPLEMENTATION.md` against. Each of these is load-bearing in
+A checklist to read `MPC-CONFIDENTAL-IMPLEMENTATION.md` against. Each of these is load-bearing in
 plaintext ERC-3643:
 
 | Assumption | Where it appears | Why encryption breaks it |
@@ -396,5 +396,5 @@ The three files worth reading first are `token/Token.sol`,
 
 ---
 
-**Next:** [`MPC-PRIVACY-IMPLEMENTATION.md`](MPC-PRIVACY-IMPLEMENTATION.md) — what this repository adds,
+**Next:** [`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) — what this repository adds,
 and what it does not.
