@@ -44,7 +44,16 @@ this port can be read side by side. Every address links to cotiscan on COTI test
 | `TrustedIssuersRegistry`  | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
 | `ModularCompliance`       | `MaxBalancePrivateCompliance` — **monolithic** (§4.4)                                                                 | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
 | **ONCHAINID**             | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
-| *no counterpart*          | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — primary issuance, **added by this port** (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+| `AgentRole` †             | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — **a bearer of the token's agent role, externalised into a contract**. Its primary-market function has no counterpart (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+
+† `AgentRole` is not one of the standard's seven deployable components, which is why it
+does not appear in [`ERC-3643-STANDARD.md`](ERC-3643-STANDARD.md) §2. It is a **base
+class** — `Token`, `IdentityRegistry` and `IdentityRegistryStorage` each inherit
+`AgentRoleUpgradeable`, so the role lives *inside* those contracts and its bearers are
+ordinary addresses in a mapping. `RwaSubscription` is one such bearer, except that it is a
+contract with its own address and its own public entry point rather than a person or a
+multisig. The standard does deploy one agent as a contract in its own right —
+`TREXGateway is AgentRole` — which is the closest precedent (§6.1).
 
 Shared by both funds, deployed once:
 
@@ -58,9 +67,16 @@ Shared by both funds, deployed once:
 Read against the standard's seven components: **one is ported** (`Token` →
 `PrivateToken`), **two are degraded** (the registry to a stub, compliance to a single
 monolithic rule), **four are absent entirely** — the two claim registries, the registry
-storage layer and ONCHAINID — and **one contract is added** that the standard has no
-counterpart for. The four absences are the whole identity half of ERC-3643, which is why
-§5 exists.
+storage layer and ONCHAINID. The four absences are the whole identity half of ERC-3643,
+which is why §5 exists.
+
+**One contract is added, and "no counterpart" would be too strong.** `RwaSubscription`
+has no *contract* counterpart, because ERC-3643 has no primary market — issuance there is
+an agent calling `mint`, with payment and allocation handled off-chain. But it is not
+outside the standard's model either: it holds the token's agent role, so its authority is
+ordinary ERC-3643 authority. What is genuinely new is the **door**. The standard's agents
+are discretionary actors who decide when to mint; this one mints for anyone verified who
+pays (§6.1).
 
 ### How they fit together
 
@@ -89,7 +105,7 @@ graph TB
         MODS["Module registry and modules<br/><i>the modular layer is gone</i>"]
     end
 
-    subgraph New["Added on COTI — no ERC-3643 counterpart"]
+    subgraph New["Added on COTI — the standard deploys neither"]
         Pay["USDC.e · USDT<br/><i>public ERC-20, 6dp</i>"]
         Onb["AccountOnboard<br/><i>AES key issuance</i>"]
     end
@@ -343,16 +359,18 @@ is, per §8 of the standard doc, the standard's strongest claim. Note also that 
 registry stays **cleartext by design** — `isVerified` returns a plain `bool` and
 `investorCountry` a plain `uint16`. Confidentiality here covers amounts, not eligibility.
 
-## 6. Two contracts with no ERC-3643 counterpart
+## 6. Two contracts the standard does not deploy
 
 ### 6.1 `RwaSubscription` — the primary-issuance till
 
 [`contracts-private/RwaSubscription.sol`](private-ERC-3643-coti-port/tree/contracts-private/RwaSubscription.sol),
 109 lines. An investor calls `subscribe(paymentToken, amount)`; the stablecoin leg settles
 to the treasury and the encrypted shares mint **in one atomic transaction**. T-REX has no
-counterpart because issuance is assumed to happen off-chain: on Avalanche the entire DMF
-supply arrived in two agent `batchMint` calls with no payment leg on-chain at all.
-Removing that counterparty risk is a genuine improvement on the incumbent flow.
+*primary-market* counterpart, because issuance there is assumed to happen off-chain: on
+Avalanche the entire DMF supply arrived in two agent `batchMint` calls with no payment leg
+on-chain at all. Removing that counterparty risk is a genuine improvement on the incumbent
+flow. Its *authority*, though, is ordinary ERC-3643 authority — see the governance
+subsection below.
 
 #### The full surface
 
