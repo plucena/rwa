@@ -69,10 +69,13 @@ omitted. Dashed boxes are **not deployed**.
 
 ```mermaid
 graph TB
-    subgraph Roles["Governance"]
-        Owner["Owner<br/><i>ERC-173</i>"]
-        Agent["Agents<br/><i>mint · burn · freeze</i><br/><i>seizure uncallable — §7.1</i>"]
+    subgraph Roles["Governance — the agents that may mint"]
+        Owner["Owner<br/><i>ERC-173 on the token</i>"]
+        Agent["Human agents<br/><i>mint · burn · freeze</i><br/><i>seizure uncallable — §7.1</i>"]
+        S["RwaSubscription<br/><i>a contract agent, added by this port</i><br/><i>public door — any verified caller mints</i>"]
     end
+
+    Inv(["Any verified investor"])
 
     T["PrivateToken<br/><i>ERC-3643 gate + encrypted balances</i><br/><i>the only contract holding ciphertext</i>"]
 
@@ -87,7 +90,6 @@ graph TB
     end
 
     subgraph New["Added on COTI — no ERC-3643 counterpart"]
-        S["RwaSubscription<br/><i>primary issuance, atomic</i>"]
         Pay["USDC.e · USDT<br/><i>public ERC-20, 6dp</i>"]
         Onb["AccountOnboard<br/><i>AES key issuance</i>"]
     end
@@ -96,9 +98,11 @@ graph TB
 
     Owner -->|"setIdentityRegistry · setCompliance"| T
     Owner -->|"addAgent · removeAgent"| Agent
+    Owner -->|"addAgent — grants the mint power"| S
     Agent -->|"mint · burn · freeze"| T
 
-    S -->|"mint · as token agent"| T
+    Inv -->|"subscribe — permissionless entry"| S
+    S -->|"mint · onlyAgent"| T
     S -->|"transferFrom · public amount"| Pay
 
     T -->|"isVerified · cleartext bool"| IR
@@ -119,9 +123,13 @@ Three differences from the standard's picture are worth naming:
   boolean, and nothing fans out at all.
 - **The compliance half has no modules.** `MaxBalancePrivateCompliance` *is* the rulebook,
   not a binder of rules (§4.4).
-- **Two edges are new and both are public.** `RwaSubscription` pulling a plain ERC-20, and
-  the subscription minting as a token agent — the atomic-settlement gain and the
-  public-payment-leg cost, in one path (§6.1).
+- **`RwaSubscription` sits in the Governance box, not beside it.** The deploy script calls
+  `token.addAgent(subscription)`, so it holds the same `onlyAgent` privilege a human
+  transfer agent has. What is new is not the privilege but the **door**: the standard's
+  agents are discretionary actors who decide when to mint, and this one mints for anyone
+  verified who pays. Drawing it outside the box would understate what it is (§6.1).
+- **Its two edges are both public.** Pulling a plain ERC-20 and minting as an agent — the
+  atomic-settlement gain and the public-payment-leg cost, in one path (§6.1).
 
 ### The port is purely additive
 
@@ -387,6 +395,101 @@ in order:
 The caller must `approve` the payment token for this contract first. That is an ordinary
 ERC-20 approval, because the payment tokens are ordinary ERC-20s.
 
+#### Governance: it is a token agent, and that is the whole story
+
+The deploy script does one line that changes what this contract *is*:
+
+```ts
+await (await token.addAgent(subscription.address)).wait();
+```
+
+`PrivateToken.mint` is `onlyAgent`, so the subscription holds the same privilege a human
+transfer agent holds. It is not an external contract that happens to call the token — it
+is a **governance principal**, and it belongs in the Governance box of the §2 diagram
+rather than beside it.
+
+What changes is the *kind* of principal. ERC-3643 assumes agents are **discretionary
+actors**: a person or multisig decides when to mint. This one is an **automaton with a
+public door** — any verified address can cause a mint by paying. The governance question
+stops being "who may mint" and becomes "what conditions cause a mint", and only two are
+encoded: verified, and payment received.
+
+```mermaid
+graph LR
+    Owner["Owner<br/><i>0xAb81c57C…c30012</i>"]
+    S["RwaSubscription"]
+    T["PrivateToken"]
+    Inv(["Any verified investor"])
+
+    Owner -->|"addAgent"| S
+    Owner -->|"setPrice · setTreasury"| S
+    Inv -->|"subscribe"| S
+    S -->|"mint · onlyAgent"| T
+
+    Owner -.->|"KILL 1 — removeAgent on the token"| T
+    Owner -.->|"KILL 2 — setPrice to 0"| S
+
+    classDef kill stroke-dasharray:4 4
+    class Owner kill
+```
+
+#### What it lacks against `AgentRole`, the standard's governance contract
+
+ERC-3643's governance contract is
+[`contracts/roles/AgentRole.sol`](private-ERC-3643-coti-port/tree/contracts/roles/AgentRole.sol)
+— OpenZeppelin `Ownable` plus a `Roles.Role` mapping. `Token` and `PrivateToken` both
+inherit `AgentRoleUpgradeable`. `RwaSubscription` inherits nothing and reimplements
+ownership in four lines:
+
+| `AgentRole` / `Ownable` provides | In `RwaSubscription` |
+| --- | --- |
+| `Ownable`, ERC-173, by inheritance | hand-rolled `address public owner` |
+| `transferOwnership` | **absent** |
+| `renounceOwnership` | **absent** |
+| `OwnershipTransferred` event | **absent** |
+| `addAgent` / `removeAgent` / `isAgent` | **absent** — no role layer at all |
+| `AgentAdded` / `AgentRemoved` events | **absent** |
+| `onlyAgent` modifier | **absent** — only `onlyOwner` |
+| `pause` / `unpause` | **absent** |
+
+Three consequences, and the first is not this port's fault:
+
+- **Pausing the token does not stop issuance.** `PrivateToken.mint` is `onlyAgent` with no
+  `whenNotPaused` — and **upstream `Token.mint` is identical**, while `transfer` *is*
+  `whenNotPaused`. So this is inherited from ERC-3643. But in the standard it stays latent,
+  because the agent is a person who simply stops calling `mint`. Here the agent is a
+  contract with a public entry point, so "stop calling it" is not available to anyone:
+  pause the token and `subscribe` still mints.
+- **The repo is internally inconsistent.** Its sibling is
+  `contract MaxBalancePrivateCompliance is Ownable` — real OpenZeppelin `Ownable`, with
+  transfer and renounce. Same repo, same deployment, two different ownership models.
+- **Two kill switches exist, neither on this contract.** `token.removeAgent(subscription)`
+  stops minting outright, and `setPrice(paymentToken, 0)` makes `subscribe` revert
+  `TokenNotAccepted`. Both work — but one lives on another contract and the other is a
+  magic-value side effect, rather than the `pause()` an operator would go looking for.
+
+#### What ERC-3643 ships instead
+
+Two answers, because issuance and governance are different layers.
+
+**For governance, `AgentRole` is the default implementation** — there is no other
+governance contract in the standard. `AgentRoleUpgradeable` is the same over
+`OwnableUpgradeable`, and that is what the token inherits.
+
+**For issuance there is no default at all, because ERC-3643 has no primary market.**
+Issuance is an agent calling `mint` or `batchMint`, with subscription, payment and
+allocation handled off-chain — which is exactly why the Avalanche DMF supply arrived in
+two `batchMint` calls with no payment leg on chain.
+
+There is, however, a structural precedent the port could have followed.
+[`TREXGateway`](private-ERC-3643-coti-port/tree/contracts/factory/TREXGateway.sol) is
+declared `contract TREXGateway is AgentRole`: a public entry point that pulls a fee via
+`transferFrom` to a `feeCollector`, with a public/permissioned toggle, a deployer
+allowlist, per-caller fee discounts and batch operations. That is the same shape as
+`RwaSubscription` — a priced, permissioned door — built on `AgentRole` as the standard
+intends. It governs *deployment* rather than issuance, so it is not a drop-in, but it is
+the in-repo answer to how ERC-3643 writes this kind of contract.
+
 #### Five things to know before integrating
 
 - **`quote` returns 0 for an unaccepted token, it does not revert.** A UI that does not
@@ -562,6 +665,10 @@ on-chain and unreadable.
 - **Agents cannot read balances** — only frozen amounts, via `reencryptFrozenTokens`
   (§4.1).
 - **The subscription payment leg is public** (§6.1).
+- **`RwaSubscription` has no governance surface** (§6.1) — no `transferOwnership`, no
+  renounce, no agent role, no pause, and it does not inherit `AgentRole` or `Ownable` the
+  way every other contract in the stack does. Its only controls are `removeAgent` on the
+  token and setting the price to zero.
 - **Nothing is audited.** 823k gas for one mint is a data point, not a cost model.
 - **Bytecode headroom is thin** — 22,309 of 24,576 bytes under Paris, ~2.3 KB left. More
   compliance will need library extraction.
