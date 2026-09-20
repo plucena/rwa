@@ -340,7 +340,7 @@ ERC-3643 wrapper on it.
 The last point is the one to hold in mind while reading this repository: **a confidential
 ERC-3643 is a problem someone else has already shipped a solution to.** The COTI port is
 an independent answer to the same question, not a first mover. The head-to-head is in
-[`comparisson.md`](comparisson.md), not here.
+[`ZAMA-COMPARISSON.md`](ZAMA-COMPARISSON.md), not here.
 
 *Provenance: the governance, ownership and Zama findings in this section come from the
 research write-up `Private_RWAs.md` (Addendum I and §6). The archived state of the T-REX

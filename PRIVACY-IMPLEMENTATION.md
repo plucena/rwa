@@ -26,7 +26,100 @@ private-ERC-3643-coti-port/
 `private-ERC-3643-coti-port/tree/deployments/rwa-demo.json`. **They must stay identical**
 or the site points at the wrong contracts. They are in sync as of 20 September 2026.
 
-## 2. The port is purely additive
+## 2. The contracts
+
+Laid out to match [`ERC-3643-STANDARD.md`](ERC-3643-STANDARD.md) §2, so the standard and
+this port can be read side by side. Every address links to cotiscan on COTI testnet
+(chain `7082400`).
+
+| ERC-3643 component | In this port | JTRSY | JAAA |
+| --- | --- | --- | --- |
+| `Token` | `PrivateToken` — encrypted balances, 8dp | [`0x6D7cf587…Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc…6732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
+| `IdentityRegistry` | `MockPrivateIdentityRegistry` — **a stub** (§5) | [`0x9Da490af…5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC851…a23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
+| `IdentityRegistryStorage` | **absent** | — | — |
+| `ClaimTopicsRegistry` | **absent** | — | — |
+| `TrustedIssuersRegistry` | **absent** | — | — |
+| `ModularCompliance` | `MaxBalancePrivateCompliance` — **monolithic** (§4.4) | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
+| **ONCHAINID** | **absent** | — | — |
+| *no counterpart* | `RwaSubscription` — primary issuance (§6) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+
+Shared by both funds, deployed once:
+
+| Contract | Address | Note |
+| --- | --- | --- |
+| `AccountOnboard` | [`0x68603585…C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance. The front end does not use it (§6) |
+| `USDC.e` | [`0x63f3D2Cc…D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
+| `USDT` | [`0x9e961430…3Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
+
+Read against the standard's seven components: **one is ported** (`Token` →
+`PrivateToken`), **two are degraded** (the registry to a stub, compliance to a single
+monolithic rule), **four are absent entirely** — the two claim registries, the registry
+storage layer and ONCHAINID — and **one contract is added** that the standard has no
+counterpart for. The four absences are the whole identity half of ERC-3643, which is why
+§5 exists.
+
+### How they fit together
+
+The same shape as the standard's diagram, with what is missing drawn in rather than
+omitted. Dashed boxes are **not deployed**.
+
+```mermaid
+graph TB
+    subgraph Roles["Governance"]
+        Owner["Owner<br/><i>ERC-173</i>"]
+        Agent["Agents<br/><i>mint · burn · freeze</i><br/><i>seizure uncallable — §7.1</i>"]
+    end
+
+    T["PrivateToken<br/><i>ERC-3643 gate + encrypted balances</i><br/><i>the only contract holding ciphertext</i>"]
+
+    subgraph Identity["Who are you — the identity half"]
+        IR["MockPrivateIdentityRegistry<br/><i>plain bool · no access control</i>"]
+        ABS["ClaimTopicsRegistry<br/>TrustedIssuersRegistry<br/>IdentityRegistryStorage<br/>ONCHAINID<br/><i>none deployed</i>"]
+    end
+
+    subgraph Rules["What may you do — the compliance half"]
+        MC["MaxBalancePrivateCompliance<br/><i>one monolithic rule</i><br/><i>encrypted shadow ledger</i>"]
+        MODS["Module registry and modules<br/><i>the modular layer is gone</i>"]
+    end
+
+    subgraph New["Added on COTI — no ERC-3643 counterpart"]
+        S["RwaSubscription<br/><i>primary issuance, atomic</i>"]
+        Pay["USDC.e · USDT<br/><i>public ERC-20, 6dp</i>"]
+        Onb["AccountOnboard<br/><i>AES key issuance</i>"]
+    end
+
+    MPC["MpcCore precompile<br/><i>onBoard · offBoardToUser · transfer</i>"]
+
+    Owner -->|"setIdentityRegistry · setCompliance"| T
+    Owner -->|"addAgent · removeAgent"| Agent
+    Agent -->|"mint · burn · freeze"| T
+
+    S -->|"mint · as token agent"| T
+    S -->|"transferFrom · public amount"| Pay
+
+    T -->|"isVerified · cleartext bool"| IR
+    T -->|"canTransfer · transferred"| MC
+
+    T -.->|"encrypt · re-encrypt"| MPC
+    MC -.->|"encrypted shadow ledger"| MPC
+    Onb -.->|"getUserKey"| MPC
+
+    classDef absent stroke-dasharray:5 5
+    class ABS,MODS absent
+```
+
+Three differences from the standard's picture are worth naming:
+
+- **The identity half collapsed to one box.** In the standard, `IdentityRegistry` fans out
+  to three registries and an investor-owned ONCHAINID. Here it terminates in a stored
+  boolean, and nothing fans out at all.
+- **The compliance half has no modules.** `MaxBalancePrivateCompliance` *is* the rulebook,
+  not a binder of rules (§4.4).
+- **Two edges are new and both are public.** `RwaSubscription` pulling a plain ERC-20, and
+  the subscription minting as a token agent — the atomic-settlement gain and the
+  public-payment-leg cost, in one path (§6).
+
+### The port is purely additive
 
 The single most useful fact about this fork, and it is mechanically checkable:
 
@@ -319,21 +412,29 @@ the setter. Tooling that reads the off-board target will fail against it.
 
 COTI testnet, chain `7082400`. Deployed 10 August 2026 by
 [`scripts/deploy-rwa-demo.ts`](private-ERC-3643-coti-port/tree/scripts/deploy-rwa-demo.ts),
-recorded in `deployments/rwa-demo.json`.
+recorded in `deployments/rwa-demo.json`. Two funds, four contracts each, plus one shared
+`AccountOnboard`. §2 shows the same addresses mapped onto their ERC-3643 roles; this is
+the deployment record.
 
-| | JTRSY — Janus Henderson Treasury Fund | JAAA — Janus Henderson AAA CLO Fund |
+### The demo fund stack
+
+| Contract | JTRSY — Janus Henderson Treasury Fund | JAAA — Janus Henderson AAA CLO Fund |
 | --- | --- | --- |
-| `PrivateToken` | `0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3` | `0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732` |
-| `MockPrivateIdentityRegistry` | `0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37` | `0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E` |
-| `MaxBalancePrivateCompliance` | `0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB` | `0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531` |
-| `RwaSubscription` | `0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f` | `0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9` |
+| `PrivateToken` | [`0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
+| `MockPrivateIdentityRegistry` | [`0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
+| `MaxBalancePrivateCompliance` | [`0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
+| `RwaSubscription` | [`0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
 | Share price | 1.112439 | 1.044450 |
 
-Shares are 8dp. `AccountOnboard` is `0x686035856C60D73843C839ad50eDC6c40385C825`.
-Payment tokens are the pre-existing testnet `USDC.e`
-(`0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C`) and `USDT`
-(`0x9e961430053cd5AbB3b060544cEcCec848693Cf0`), both 6dp and both **ordinary public
-ERC-20s**.
+Shares are 8dp.
+
+### Shared contracts
+
+| Contract | Address | Note |
+| --- | --- | --- |
+| `AccountOnboard` | [`0x686035856C60D73843C839ad50eDC6c40385C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance; the front end does not use it (§6) |
+| `USDC.e` | [`0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
+| `USDT` | [`0x9e961430053cd5AbB3b060544cEcCec848693Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
 
 **These are demo tokens.** The real JTRSY is a Centrifuge V3 / ERC-7540 fund on Ethereum
 mainnet and has no COTI deployment. Nothing here is affiliated with Janus Henderson or
@@ -344,9 +445,20 @@ All nine contracts are source-verified on cotiscan with a full bytecode match
 Shanghai `PUSH0`, and this tree compiled for `cancun` through early phases and would never
 have deployed.
 
-A separate bare `PrivateToken` at `0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7` is the
-test-suite deployment, not source-verified, and nothing consumes it. Do not confuse the
-two stacks.
+### The test-suite deployment — do not confuse it with the demo stack
+
+A separate, bare stack deployed 9 August 2026 and recorded in
+`deployments/coti-testnet.json`. It has no subscription layer, is **not source-verified**,
+and **nothing consumes it** — it exists because the 60 tests run against it.
+
+| Contract | Address |
+| --- | --- |
+| `PrivateToken` | [`0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7`](https://testnet.cotiscan.io/address/0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7) |
+| `MaxBalancePrivateCompliance` | [`0xc3b5F4eFe6954EC39598D83b5Ea033273eefB917`](https://testnet.cotiscan.io/address/0xc3b5F4eFe6954EC39598D83b5Ea033273eefB917) |
+| `MockPrivateIdentityRegistry` | [`0x05f99994eF7E27792C36353065A6E12Ba9f2bEF7`](https://testnet.cotiscan.io/address/0x05f99994eF7E27792C36353065A6E12Ba9f2bEF7) |
+
+Note that `scripts/verify-deployment.ts` reads this file, so it checks **only** this stack
+— it does not look at the demo contracts the application uses.
 
 ### Confidentiality round-trips, confirmed
 
