@@ -64,16 +64,6 @@ Shared by both funds, deployed once:
 | `USDC.e`                               | [`0x63f3D2Cc…D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
 | `USDT`                                 | [`0x9e961430…3Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
 
-Read against the standard's seven components: **one is ported** (`Token` →
-`PrivateToken`), **two are degraded** (the registry to a stub, compliance to a single
-monolithic rule), **four are absent entirely** — the two claim registries, the registry
-storage layer and ONCHAINID. The four absences are the whole identity half of ERC-3643,
-which is why §5 exists.
-
-**One contract is added.** Only its *primary-market function* is genuinely new — ERC-3643
-has no primary market, so issuance there is an agent calling `mint` with payment and
-allocation handled off-chain. Its authority is not new, per the footnote above.
-
 ### How they fit together
 
 The same shape as the standard's diagram, with what is missing drawn in rather than
