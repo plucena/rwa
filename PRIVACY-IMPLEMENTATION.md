@@ -710,8 +710,6 @@ on-chain and unreadable.
   this port deleting, because COTI-native `MpcCore.decrypt` returns in-transaction and PoD
   cannot.
 - **Nothing is audited.** 823k gas for one mint is a data point, not a cost model.
-- **Bytecode headroom is thin** — 22,309 of 24,576 bytes under Paris, ~2.3 KB left. More
-  compliance will need library extraction.
 - The two original upstream suites were **rewritten against the ct model** rather than
   repointed, because they assumed durable `gtUint256` handles in storage. Every original
   test intent is preserved, including four asserting the `gtUint256` entry points are
