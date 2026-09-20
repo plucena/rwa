@@ -70,13 +70,9 @@ monolithic rule), **four are absent entirely** — the two claim registries, the
 storage layer and ONCHAINID. The four absences are the whole identity half of ERC-3643,
 which is why §5 exists.
 
-**One contract is added, and "no counterpart" would be too strong.** `RwaSubscription`
-has no *contract* counterpart, because ERC-3643 has no primary market — issuance there is
-an agent calling `mint`, with payment and allocation handled off-chain. But it is not
-outside the standard's model either: it holds the token's agent role, so its authority is
-ordinary ERC-3643 authority. What is genuinely new is the **door**. The standard's agents
-are discretionary actors who decide when to mint; this one mints for anyone verified who
-pays (§6.1).
+**One contract is added.** Only its *primary-market function* is genuinely new — ERC-3643
+has no primary market, so issuance there is an agent calling `mint` with payment and
+allocation handled off-chain. Its authority is not new, per the footnote above.
 
 ### How they fit together
 
@@ -140,10 +136,10 @@ Three differences from the standard's picture are worth naming:
 - **The compliance half has no modules.** `MaxBalancePrivateCompliance` *is* the rulebook,
   not a binder of rules (§4.4).
 - **`RwaSubscription` sits in the Governance box, not beside it.** The deploy script calls
-  `token.addAgent(subscription)`, so it holds the same `onlyAgent` privilege a human
-  transfer agent has. What is new is not the privilege but the **door**: the standard's
-  agents are discretionary actors who decide when to mint, and this one mints for anyone
-  verified who pays. Drawing it outside the box would understate what it is (§6.1).
+  `token.addAgent(subscription)`, so drawing it outside the box would understate what it
+  is. What is new is not the privilege but the **door**: the standard's agents are
+  discretionary actors who decide when to mint, and this one mints for anyone verified who
+  pays (§6.1).
 - **Its two edges are both public.** Pulling a plain ERC-20 and minting as an agent — the
   atomic-settlement gain and the public-payment-leg cost, in one path (§6.1).
 
