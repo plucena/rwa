@@ -624,12 +624,6 @@ One deviation from a standard pToken is worth knowing: this contract has **no
 `accountEncryptionAddress(address)` getter**, only the setter, so tooling that reads back
 the off-board target will fail against it.
 
-**It is not ERC-7984.** That standard — OpenZeppelin and Zama's *Confidential Fungible
-Token* — represents amounts as FHE ciphertext *handles* resolved by a coprocessor. COTI's
-model is different: `ctUint256` is an AES ciphertext with exactly one reader, decrypted
-client-side by the key holder. Neither COTI's contracts nor the wallet plugin reference
-ERC-7984, and nothing here claims conformance with it.
-
 ## 8. What is deployed
 
 COTI testnet, chain `7082400`. Deployed 10 August 2026 by
