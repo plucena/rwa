@@ -48,6 +48,141 @@ Six contracts plus a separate identity system:
 ONCHAINID is a separate project ([`onchain-id/solidity`](https://github.com/onchain-id/solidity))
 and is deliberately not part of the token suite — the investor deploys and controls it.
 
+### How they fit together
+
+Two questions are answered by two different halves of the suite: **who are you** on the
+left, **what are you allowed to do** on the right. The token is the only contract that
+talks to both.
+
+```mermaid
+graph TB
+    subgraph Roles["Governance"]
+        Owner["Owner<br/><i>ERC-173</i>"]
+        Agent["Agents<br/><i>mint · burn · freeze · seize</i>"]
+    end
+
+    T["Token<br/><i>ERC-20 superset — the transfer gate</i>"]
+
+    subgraph Identity["Who are you — the identity half"]
+        IR["IdentityRegistry<br/><i>isVerified · investorCountry</i>"]
+        IRS["IdentityRegistryStorage<br/><i>wallet → identity + country</i><br/><i>shareable across tokens</i>"]
+        CTR["ClaimTopicsRegistry<br/><i>which claims this token requires</i>"]
+        TIR["TrustedIssuersRegistry<br/><i>who may attest to each topic</i>"]
+    end
+
+    subgraph Rules["What may you do — the compliance half"]
+        MC["ModularCompliance<br/><i>binds the rulebook</i>"]
+        M1["MaxBalance"]
+        M2["SupplyLimit"]
+        M3["TimeTransfersLimits"]
+        M4["TransferFees"]
+    end
+
+    subgraph Outside["Investor-controlled — outside the suite"]
+        OID["ONCHAINID<br/><i>ERC-734/735 identity contract</i>"]
+    end
+
+    CI["Claim issuer<br/><i>KYC provider, off-suite</i>"]
+
+    Owner -->|"setIdentityRegistry · setCompliance"| T
+    Owner -->|"addAgent · removeAgent"| Agent
+    Agent -->|"mint · forcedTransfer · freeze · pause"| T
+
+    T -->|"isVerified"| IR
+    T -->|"canTransfer · transferred · created · destroyed"| MC
+
+    IR --> IRS
+    IR -->|"required topics"| CTR
+    IR -->|"trusted issuers per topic"| TIR
+    IR -->|"reads signed claims from"| OID
+    IR -->|"isClaimValid"| CI
+
+    IRS -->|"stores a pointer to"| OID
+    CI -.->|"signs claims into"| OID
+
+    MC --> M1
+    MC --> M2
+    MC --> M3
+    MC --> M4
+```
+
+Three things the picture makes obvious that the table does not:
+
+- **`Token` holds no eligibility logic of its own.** It asks two questions and acts on the
+  answers. Swap either half and the token is unchanged.
+- **The dashed edge is the only one an issuer does not control.** A claim issuer signs a
+  claim into an identity contract the investor owns; the suite only ever *reads* it.
+- **`IdentityRegistryStorage` sits behind the registry** so several tokens can share one
+  KYC set. One onboarding, many securities.
+
+The modules shown are illustrative. **They do not ship with the canonical repository** —
+see §6, which is the single biggest practical gotcha in adopting the standard.
+`TREXFactory`, `TREXGateway` and `TREXImplementationAuthority` deploy and upgrade whole
+suites and are deliberately left out here; they sit above this picture, not in it.
+
+### A transfer, end to end
+
+The same contracts in motion. This is the plaintext standard — every arrow carries a
+cleartext amount, and the failure path is a revert.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor H as Holder
+    participant T as Token
+    participant IR as IdentityRegistry
+    participant CTR as ClaimTopicsRegistry
+    participant TIR as TrustedIssuersRegistry
+    participant OID as ONCHAINID of receiver
+    participant CI as Claim issuer
+    participant MC as ModularCompliance
+    participant MOD as Bound modules
+
+    H->>T: transfer(to, amount)
+
+    Note over T: Gate 1 — neither wallet frozen, token not paused
+    Note over T: Gate 2 — amount ≤ balance minus frozenTokens
+
+    T->>IR: isVerified(to)
+    IR->>CTR: getClaimTopics()
+    CTR-->>IR: required topics
+    loop for each required topic
+        IR->>TIR: getTrustedIssuersForClaimTopic(topic)
+        TIR-->>IR: trusted issuers
+        IR->>OID: getClaim(topic, issuer)
+        OID-->>IR: signed claim
+        IR->>CI: isClaimValid(identity, topic, signature, data)
+        CI-->>IR: valid or not
+    end
+    IR-->>T: Gate 3 — verified
+
+    T->>MC: canTransfer(from, to, amount)
+    MC->>MOD: moduleCheck per bound module
+    MOD-->>MC: allow or block
+    MC-->>T: Gate 4 — compliant
+
+    alt all four gates pass
+        T->>T: _transfer(from, to, amount)
+        T->>MC: transferred(from, to, amount)
+        MC->>MOD: moduleTransferAction — update running state
+        T-->>H: true
+    else any gate fails
+        T-->>H: revert "Transfer not possible"
+    end
+```
+
+Two details in that flow matter more than their size suggests.
+
+**`isVerified` is a loop, not a lookup.** Steps 2–11 run on every single transfer, and
+steps 5–10 repeat once per required claim topic. This is where ERC-3643's gas cost lives,
+and it is the direct price of the portable-credential model in §8.
+
+**Step 17 is not a gate.** `transferred()` fires *after* the balance moves, so modules can
+update running state — period totals, cooldowns, holder counts. That post-hoc write is why
+compliance modules keep a **second ledger of balances** alongside the token's, and keeping
+those two ledgers consistent is the hard problem under encryption
+([`PRIVACY-IMPLEMENTATION.md`](PRIVACY-IMPLEMENTATION.md) §4.4).
+
 ## 3. The transfer gate
 
 The whole standard is legible in one function:
