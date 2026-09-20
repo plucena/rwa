@@ -512,30 +512,11 @@ event is verbose, it is that **any** public payment leg plus a public price dete
 share count arithmetically. The encrypted `Transfer` protects the position from then on;
 it does not protect its acquisition.
 
-#### Closing it: the private payment tokens exist, but the swap is not a swap
+#### Closing it
 
 COTI already publishes confidential payment tokens — `PrivateBridgedUSDC` (**`p.USDC.e`**,
-6dp) and `PrivateTetherUSD` (**`p.USDT`**), both `PrivateERC20` subclasses. They are the
-right direction, and they are why this gap is engineering rather than research. But
-**pointing `setPrice` at a p-token is not enough, and on its own it does not even run:**
-
-1. **`subscribe` would revert on the first call.** It settles through
-   `IERC20Min.transferFrom(...) returns (bool)`, and `PrivateERC20`'s plaintext
-   `transferFrom(address,address,uint256)` **returns nothing** — the return decode fails.
-   That overload is also gated behind `publicAmountsEnabled`, and using it would keep the
-   amount public, which is the thing being fixed.
-2. **The private path takes `itUint256`**, so `subscribe` must accept an encrypted amount
-   and compute the share count under MPC. That part is available:
-   `MpcCore.div(gtUint256, uint256)` exists.
-3. **That is where it stops.** `PrivateToken.mint(address, uint256)` takes a **plaintext**
-   amount, and this token has no encrypted-amount mint — no `mintGt`, nothing taking
-   `itUint256` or `gtUint256`. An encrypted share count has nowhere to go. Decrypting it
-   in-transaction to fit the existing signature only moves the leak, since `MintRequested`
-   and `MintFinalized` carry plaintext amounts (§4.3).
-
-So the accurate statement is: **the payment tokens are ready and the arithmetic is
-available, but the token needs a mint that accepts a ciphertext before any of it
-connects.** Off-chain settlement is the alternative that needs no contract changes at all.
+6dp) and `PrivateTetherUSD` (**`p.USDT`**), both `PrivateERC20` subclasses. Settling the
+payment leg in one of those, or off-chain, is what closes this gap.
 
 ### 6.2 `AccountOnboard`
 
@@ -572,7 +553,7 @@ The eight functions that were converted correctly take `itUint256`: `transfer`,
 `transferFrom`, `approve`, `increaseAllowance`, `decreaseAllowance`, `batchTransfer`,
 `freezePartialTokens`, `unfreezePartialTokens`.
 
-### 7.2 The token is invisible to ERC-20 infrastructure
+### 7.2 `PrivateToken` differences from a standard ERC-20
 
 `PrivateToken` exposes 58 functions and 21 events. Three failure modes, and two are
 silent:
@@ -690,9 +671,8 @@ on-chain and unreadable.
 - **Four agent entry points are uncallable** and need `itUint256` (§7.1).
 - **Agents cannot read balances** — only frozen amounts, via `reencryptFrozenTokens`
   (§4.1).
-- **The subscription payment leg is public** (§6.1). COTI's `p.USDC.e` and `p.USDT` would
-  fix it, but not by themselves: `PrivateToken` has no encrypted-amount mint, so an
-  encrypted share count has nowhere to go.
+- **The subscription payment leg is public** (§6.1). Settling in `p.USDC.e` or `p.USDT`,
+  or off-chain, is what closes it.
 - **`RwaSubscription` has no governance surface** (§6.1) — no `transferOwnership`, no
   renounce, no agent role, no pause, and it does not inherit `AgentRole` or `Ownable` the
   way every other contract in the stack does. Its only controls are `removeAgent` on the
