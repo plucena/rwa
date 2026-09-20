@@ -1,4 +1,6 @@
-# What this repository changes in ERC-3643
+# ERC-3643 MPC Implementation
+
+ERC-3643 is the standard for regulated tokens, but everything is public: balances, transfer sizes, the whole cap table. No fund can accept that.  This project ports T-REX to COTI's garbled-circuit MPC so that balances, allowances and transfer amounts are ciphertext on-chain, while identity checks and compliance still run, and compliance evaluates the encrypted values directly.
 
 Read [`ERC-3643-STANDARD.md`](ERC-3643-STANDARD.md) first. This document assumes it, and
 describes only the delta: what the COTI port adds to ERC-3643 v4.1.3, what it removes,
@@ -32,24 +34,26 @@ Laid out to match [`ERC-3643-STANDARD.md`](ERC-3643-STANDARD.md) §2, so the sta
 this port can be read side by side. Every address links to cotiscan on COTI testnet
 (chain `7082400`).
 
-| ERC-3643 component | In this port | JTRSY | JAAA |
-| --- | --- | --- | --- |
-| `Token` | `PrivateToken` — encrypted balances, 8dp | [`0x6D7cf587…Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc…6732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
-| `IdentityRegistry` | `MockPrivateIdentityRegistry` — **a stub** (§5) | [`0x9Da490af…5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC851…a23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
-| `IdentityRegistryStorage` | **absent** | — | — |
-| `ClaimTopicsRegistry` | **absent** | — | — |
-| `TrustedIssuersRegistry` | **absent** | — | — |
-| `ModularCompliance` | `MaxBalancePrivateCompliance` — **monolithic** (§4.4) | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
-| **ONCHAINID** | **absent** | — | — |
-| *no counterpart* | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — primary issuance, **added by this port** (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+
+| ERC-3643 component        | In this port                                                                                                            | JTRSY                                                                                                | JAAA                                                                                                 |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Token`                   | `PrivateToken` — encrypted balances, 8dp                                                                               | [`0x6D7cf587…Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc…6732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
+| `IdentityRegistry`        | `MockPrivateIdentityRegistry` — **a stub** (§5)                                                                       | [`0x9Da490af…5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC851…a23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
+| `IdentityRegistryStorage` | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
+| `ClaimTopicsRegistry`     | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
+| `TrustedIssuersRegistry`  | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
+| `ModularCompliance`       | `MaxBalancePrivateCompliance` — **monolithic** (§4.4)                                                                 | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
+| **ONCHAINID**             | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
+| *no counterpart*          | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — primary issuance, **added by this port** (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
 
 Shared by both funds, deployed once:
 
-| Contract | Address | Note |
-| --- | --- | --- |
-| [`AccountOnboard`](#62-accountonboard) | [`0x68603585…C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance. The front end does not use it (§6.2) |
-| `USDC.e` | [`0x63f3D2Cc…D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
-| `USDT` | [`0x9e961430…3Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
+
+| Contract                               | Address                                                                                              | Note                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| [`AccountOnboard`](#62-accountonboard) | [`0x68603585…C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance. The front end does not use it (§6.2)    |
+| `USDC.e`                               | [`0x63f3D2Cc…D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
+| `USDT`                                 | [`0x9e961430…3Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
 
 Read against the standard's seven components: **one is ported** (`Token` →
 `PrivateToken`), **two are degraded** (the registry to a stub, compliance to a single
@@ -131,16 +135,17 @@ diff -rq package/contracts private-ERC-3643-coti-port/tree/contracts
 **All 66 upstream `.sol` files are byte-identical.** Not one line of ERC-3643 v4.1.3 was
 edited. `diff` reports only additions:
 
-| Added path | Files | Lines | What it is |
-| --- | --- | --- | --- |
-| `contracts/bubble/` | 3 | 14,760 | Vendored COTI `MpcCore`, `MpcInterface`, `DecryptionCaller` |
-| `contracts/token/PrivateToken.sol` | 1 | 1,082 | The confidential token, beside untouched `Token.sol` (595) |
-| `contracts/token/PrivateTokenStorage.sol` | 1 | 145 | Its storage layout |
-| `contracts/token/IPrivateToken.sol` | 1 | 471 | Its interface, beside untouched `IToken.sol` (460) |
-| `contracts/compliance/modular/IPrivateModularCompliance.sol` | 1 | 234 | Compliance interface with encrypted `canTransfer` |
-| `contracts/registry/interface/IPrivateIdentity*.sol` | 2 | 17 | Minimal identity interfaces |
-| `contracts/roles/private/` | 2 | 58 | `AgentRoleUpgradeable`, `Roles` |
-| `contracts-private/` | 5 | 356 | Demo and test contracts — outside the fork tree entirely |
+
+| Added path                                                   | Files | Lines  | What it is                                                 |
+| ------------------------------------------------------------ | ----- | ------ | ---------------------------------------------------------- |
+| `contracts/bubble/`                                          | 3     | 14,760 | Vendored COTI`MpcCore`, `MpcInterface`, `DecryptionCaller` |
+| `contracts/token/PrivateToken.sol`                           | 1     | 1,082  | The confidential token, beside untouched`Token.sol` (595)  |
+| `contracts/token/PrivateTokenStorage.sol`                    | 1     | 145    | Its storage layout                                         |
+| `contracts/token/IPrivateToken.sol`                          | 1     | 471    | Its interface, beside untouched`IToken.sol` (460)          |
+| `contracts/compliance/modular/IPrivateModularCompliance.sol` | 1     | 234    | Compliance interface with encrypted`canTransfer`           |
+| `contracts/registry/interface/IPrivateIdentity*.sol`         | 2     | 17     | Minimal identity interfaces                                |
+| `contracts/roles/private/`                                   | 2     | 58     | `AgentRoleUpgradeable`, `Roles`                            |
+| `contracts-private/`                                         | 5     | 356    | Demo and test contracts — outside the fork tree entirely  |
 
 The private stack **sits beside** the plaintext one rather than replacing it. A reviewer
 who knows T-REX can diff this tree against upstream and get a clean, empty answer for
@@ -172,16 +177,17 @@ refresh.
 
 ## 3. The type changes
 
-| Surface | Plaintext T-REX | This port |
-| --- | --- | --- |
-| Balances, allowances, frozen tokens | `uint256` | **`utUint256` / `ctUint256` ciphertext in storage** |
-| Total supply | `uint256` | `uint256` — **stays public** |
-| Identity registry | `isVerified`, `investorCountry` | **unchanged, cleartext** — `bool` and `uint16` |
-| `canTransfer` | `view returns (bool)` | **non-`view`, `returns (gtBool)`** |
-| Failed transfer | `revert("Transfer not possible")` | **never reverts** — moves an encrypted zero |
-| Mint / burn | synchronous | **async** — decrypt request plus `callbackMint` / `callbackBurn` |
-| Compliance modules | framework + 11 in the archived repo | **one monolithic contract**, marked test-only |
-| `version()` | `"4.1.3"` | `"0.0.1"` |
+
+| Surface                             | Plaintext T-REX                     | This port                                                         |
+| ----------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| Balances, allowances, frozen tokens | `uint256`                           | **`utUint256` / `ctUint256` ciphertext in storage**               |
+| Total supply                        | `uint256`                           | `uint256` — **stays public**                                     |
+| Identity registry                   | `isVerified`, `investorCountry`     | **unchanged, cleartext** — `bool` and `uint16`                   |
+| `canTransfer`                       | `view returns (bool)`               | **non-`view`, `returns (gtBool)`**                                |
+| Failed transfer                     | `revert("Transfer not possible")`   | **never reverts** — moves an encrypted zero                      |
+| Mint / burn                         | synchronous                         | **async** — decrypt request plus `callbackMint` / `callbackBurn` |
+| Compliance modules                  | framework + 11 in the archived repo | **one monolithic contract**, marked test-only                     |
+| `version()`                         | `"4.1.3"`                           | `"0.0.1"`                                                         |
 
 Three COTI types carry the whole design, and the distinction between them is what most of
 the port is about:
@@ -344,15 +350,16 @@ Removing that counterparty risk is a genuine improvement on the incumbent flow.
 
 Eight functions, three events, five custom errors — the whole contract fits on a page.
 
-| Function | Who | What it does |
-| --- | --- | --- |
-| `subscribe(address paymentToken, uint256 paymentAmount) → uint256` | anyone **verified** | The only state-changing call an investor makes. Returns the share count |
-| `quote(address paymentToken, uint256 paymentAmount) → uint256` | view | Shares a payment would buy, for a UI to show before committing |
-| `setPrice(address paymentToken, uint256 price)` | owner | Sets or unsets a payment token. **Price 0 means not accepted** |
-| `setTreasury(address)` | owner | Where payment settles |
-| `priceOf(address) → uint256` | view | Payment-token units per `1e8` shares |
-| `owner() → address` · `treasury() → address` | view | Governance getters |
-| `token() → address` | view | The fund token. **`immutable`** — one subscription per fund, permanently |
+
+| Function                                                            | Who                | What it does                                                             |
+| ------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------ |
+| `subscribe(address paymentToken, uint256 paymentAmount) → uint256` | anyone**verified** | The only state-changing call an investor makes. Returns the share count  |
+| `quote(address paymentToken, uint256 paymentAmount) → uint256`     | view               | Shares a payment would buy, for a UI to show before committing           |
+| `setPrice(address paymentToken, uint256 price)`                     | owner              | Sets or unsets a payment token.**Price 0 means not accepted**            |
+| `setTreasury(address)`                                              | owner              | Where payment settles                                                    |
+| `priceOf(address) → uint256`                                       | view               | Payment-token units per`1e8` shares                                      |
+| `owner() → address` · `treasury() → address`                     | view               | Governance getters                                                       |
+| `token() → address`                                                | view               | The fund token.**`immutable`** — one subscription per fund, permanently |
 
 Events: `Subscribed(address indexed buyer, address indexed paymentToken, uint256 paymentAmount, uint256 shares)`,
 `PriceSet(address indexed paymentToken, uint256 price)`,
@@ -484,23 +491,25 @@ the deployment record.
 
 ### The demo fund stack
 
-| Contract | JTRSY — Janus Henderson Treasury Fund | JAAA — Janus Henderson AAA CLO Fund |
-| --- | --- | --- |
-| `PrivateToken` | [`0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
-| `MockPrivateIdentityRegistry` | [`0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
-| `MaxBalancePrivateCompliance` | [`0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
+
+| Contract                                                            | JTRSY — Janus Henderson Treasury Fund                                                                                         | JAAA — Janus Henderson AAA CLO Fund                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `PrivateToken`                                                      | [`0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
+| `MockPrivateIdentityRegistry`                                       | [`0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
+| `MaxBalancePrivateCompliance`                                       | [`0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
 | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) | [`0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
-| Share price | 1.112439 | 1.044450 |
+| Share price                                                         | 1.112439                                                                                                                       | 1.044450                                                                                                                       |
 
 Shares are 8dp.
 
 ### Shared contracts
 
-| Contract | Address | Note |
-| --- | --- | --- |
-| [`AccountOnboard`](#62-accountonboard) | [`0x686035856C60D73843C839ad50eDC6c40385C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance; the front end does not use it (§6.2) |
-| `USDC.e` | [`0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
-| `USDT` | [`0x9e961430053cd5AbB3b060544cEcCec848693Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
+
+| Contract                               | Address                                                                                                                        | Note                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| [`AccountOnboard`](#62-accountonboard) | [`0x686035856C60D73843C839ad50eDC6c40385C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance; the front end does not use it (§6.2)    |
+| `USDC.e`                               | [`0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
+| `USDT`                                 | [`0x9e961430053cd5AbB3b060544cEcCec848693Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token.**Ordinary public ERC-20**, 6dp |
 
 **These are demo tokens.** The real JTRSY is a Centrifuge V3 / ERC-7540 fund on Ethereum
 mainnet and has no COTI deployment. Nothing here is affiliated with Janus Henderson or
@@ -517,9 +526,10 @@ A separate, bare stack deployed 9 August 2026 and recorded in
 `deployments/coti-testnet.json`. It has no subscription layer, is **not source-verified**,
 and **nothing consumes it** — it exists because the 60 tests run against it.
 
-| Contract | Address |
-| --- | --- |
-| `PrivateToken` | [`0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7`](https://testnet.cotiscan.io/address/0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7) |
+
+| Contract                      | Address                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `PrivateToken`                | [`0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7`](https://testnet.cotiscan.io/address/0xa885398494fB02916C1AeC8Bd31DD7d1a0694Bd7) |
 | `MaxBalancePrivateCompliance` | [`0xc3b5F4eFe6954EC39598D83b5Ea033273eefB917`](https://testnet.cotiscan.io/address/0xc3b5F4eFe6954EC39598D83b5Ea033273eefB917) |
 | `MockPrivateIdentityRegistry` | [`0x05f99994eF7E27792C36353065A6E12Ba9f2bEF7`](https://testnet.cotiscan.io/address/0x05f99994eF7E27792C36353065A6E12Ba9f2bEF7) |
 
