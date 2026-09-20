@@ -697,6 +697,18 @@ on-chain and unreadable.
   renounce, no agent role, no pause, and it does not inherit `AgentRole` or `Ownable` the
   way every other contract in the stack does. Its only controls are `removeAgent` on the
   token and setting the price to zero.
+- **It runs on COTI Network, and only there.** Every contract calls `MpcCore` precompiles
+  directly, so the stack is bound to chain `7082400`. Reaching an ordinary EVM chain —
+  Base, Ethereum, an L2 — means
+  [Privacy on Demand](https://docs.coti.io/coti-documentation/privacy-on-demand), where
+  the application stays on the host chain and delegates encrypted computation to COTI
+  through an inbox and an MPC executor. **PoD is asynchronous by construction**: results
+  arrive by callback, balances carry a pending flag rather than a value
+  (`balanceOfWithStatus` returns a ciphertext *and* a bool), and a request issued against
+  an already-pending one reverts. That is a **re-architecture, not a redeploy** — and the
+  irony is that it would restore exactly the request-and-callback machinery §4.3 records
+  this port deleting, because COTI-native `MpcCore.decrypt` returns in-transaction and PoD
+  cannot.
 - **Nothing is audited.** 823k gas for one mint is a data point, not a cost model.
 - **Bytecode headroom is thin** — 22,309 of 24,576 bytes under Paris, ~2.3 KB left. More
   compliance will need library extraction.
