@@ -41,13 +41,13 @@ this port can be read side by side. Every address links to cotiscan on COTI test
 | `TrustedIssuersRegistry` | **absent** | — | — |
 | `ModularCompliance` | `MaxBalancePrivateCompliance` — **monolithic** (§4.4) | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
 | **ONCHAINID** | **absent** | — | — |
-| *no counterpart* | `RwaSubscription` — primary issuance (§6) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+| *no counterpart* | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — primary issuance, **added by this port** (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
 
 Shared by both funds, deployed once:
 
 | Contract | Address | Note |
 | --- | --- | --- |
-| `AccountOnboard` | [`0x68603585…C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance. The front end does not use it (§6) |
+| [`AccountOnboard`](#62-accountonboard) | [`0x68603585…C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance. The front end does not use it (§6.2) |
 | `USDC.e` | [`0x63f3D2Cc…D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
 | `USDT` | [`0x9e961430…3Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
 
@@ -117,7 +117,7 @@ Three differences from the standard's picture are worth naming:
   not a binder of rules (§4.4).
 - **Two edges are new and both are public.** `RwaSubscription` pulling a plain ERC-20, and
   the subscription minting as a token agent — the atomic-settlement gain and the
-  public-payment-leg cost, in one path (§6).
+  public-payment-leg cost, in one path (§6.1).
 
 ### The port is purely additive
 
@@ -331,14 +331,76 @@ registry stays **cleartext by design** — `isVerified` returns a plain `bool` a
 
 ## 6. Two contracts with no ERC-3643 counterpart
 
-**`RwaSubscription`** (109 lines) — a primary-issuance till. An investor calls
-`subscribe(paymentToken, amount)`; the stablecoin leg settles to the treasury and the
-encrypted shares mint **in one atomic transaction**. T-REX has no counterpart because
-issuance is assumed to happen off-chain: on Avalanche the entire DMF supply arrived in two
-agent `batchMint` calls with no payment leg on-chain at all. Removing that counterparty
-risk is a genuine improvement on the incumbent flow.
+### 6.1 `RwaSubscription` — the primary-issuance till
 
-It comes with a disclosure attached, which the contract documents itself:
+[`contracts-private/RwaSubscription.sol`](private-ERC-3643-coti-port/tree/contracts-private/RwaSubscription.sol),
+109 lines. An investor calls `subscribe(paymentToken, amount)`; the stablecoin leg settles
+to the treasury and the encrypted shares mint **in one atomic transaction**. T-REX has no
+counterpart because issuance is assumed to happen off-chain: on Avalanche the entire DMF
+supply arrived in two agent `batchMint` calls with no payment leg on-chain at all.
+Removing that counterparty risk is a genuine improvement on the incumbent flow.
+
+#### The full surface
+
+Eight functions, three events, five custom errors — the whole contract fits on a page.
+
+| Function | Who | What it does |
+| --- | --- | --- |
+| `subscribe(address paymentToken, uint256 paymentAmount) → uint256` | anyone **verified** | The only state-changing call an investor makes. Returns the share count |
+| `quote(address paymentToken, uint256 paymentAmount) → uint256` | view | Shares a payment would buy, for a UI to show before committing |
+| `setPrice(address paymentToken, uint256 price)` | owner | Sets or unsets a payment token. **Price 0 means not accepted** |
+| `setTreasury(address)` | owner | Where payment settles |
+| `priceOf(address) → uint256` | view | Payment-token units per `1e8` shares |
+| `owner() → address` · `treasury() → address` | view | Governance getters |
+| `token() → address` | view | The fund token. **`immutable`** — one subscription per fund, permanently |
+
+Events: `Subscribed(address indexed buyer, address indexed paymentToken, uint256 paymentAmount, uint256 shares)`,
+`PriceSet(address indexed paymentToken, uint256 price)`,
+`TreasurySet(address indexed treasury)`.
+
+Errors: `NotOwner`, `TokenNotAccepted`, `NotVerified`, `NothingToBuy`, `PaymentFailed`.
+
+#### What `subscribe` actually does
+
+[`RwaSubscription.sol:89-108`](private-ERC-3643-coti-port/tree/contracts-private/RwaSubscription.sol#L89-L108),
+in order:
+
+1. **Look up the price.** `priceOf[paymentToken]`; zero reverts `TokenNotAccepted`.
+2. **Check eligibility.** `token.identityRegistry().isVerified(msg.sender)` — the ERC-3643
+   gate, reached through the token rather than held locally, so the subscription can never
+   drift from the fund's own registry. Fails with `NotVerified`.
+3. **Compute shares.** `paymentAmount * 1e8 / price`. Zero reverts `NothingToBuy`.
+4. **Pull payment.** `transferFrom(msg.sender, treasury, paymentAmount)` — straight to the
+   treasury, so **the contract never custodies funds**. A `false` return reverts
+   `PaymentFailed`.
+5. **Mint.** `token.mint(msg.sender, shares)`, which requires this contract to be an agent
+   on the token — the deploy script adds it. Shares land encrypted.
+6. **Emit** `Subscribed` and return the share count.
+
+The caller must `approve` the payment token for this contract first. That is an ordinary
+ERC-20 approval, because the payment tokens are ordinary ERC-20s.
+
+#### Five things to know before integrating
+
+- **`quote` returns 0 for an unaccepted token, it does not revert.** A UI that does not
+  special-case zero will render "0 shares" where the honest message is "this token is not
+  accepted". `subscribe` *does* revert on the same input, so the two disagree by design.
+- **There is no slippage or deadline protection.** `setPrice` takes effect immediately and
+  `subscribe` recomputes from the live price, so the price can move between a user's quote
+  and their transaction. For a fixed-price primary market with one owner this is a known
+  shape, not a bug — but nothing in the contract bounds it.
+- **Ownership is permanent.** There is no `transferOwnership` and no renounce; `owner` is
+  set once in the constructor. Lose that key and prices and treasury are frozen forever.
+  Both deployed subscriptions are owned by `0xAb81c57C…c30012`, which is also the treasury
+  and the token agent.
+- **Integer division truncates, and the dust favours the issuer.** 100 USDC.e at
+  `1112439` yields `8989256939` shares, discarding the remainder.
+- **It is one-way.** There is no redemption, no refund and no pause. Shares can be
+  subscribed for and never sold back through this contract.
+
+#### The disclosure it carries
+
+The contract documents its own privacy cost rather than hiding it:
 
 > PRIVACY NOTE, deliberately not hidden: USDC and USDT on COTI testnet are ordinary
 > ERC-20s with public amounts. The payment leg of a subscription is therefore visible,
@@ -346,14 +408,18 @@ It comes with a disclosure attached, which the contract documents itself:
 
 **Confidentiality protects the holding, not the purchase.** Confirmed on chain: in
 `0x8ffe8404…df788` the `Subscribed` event carries `paymentAmount = 100000000` and
-`shares = 8989256939` as plain integers. The encrypted `Transfer` protects the position
-from then on; it does not protect its acquisition. Closing this needs a confidential
-payment token or off-chain settlement.
+`shares = 8989256939` as plain integers. Note the shape of the leak — it is not that the
+event is verbose, it is that **any** public payment leg plus a public price determines the
+share count arithmetically. The encrypted `Transfer` protects the position from then on;
+it does not protect its acquisition. Closing this needs a confidential payment token —
+COTI publishes `PrivateBridgedUSDC` and `PrivateTetherUSD` already — or off-chain
+settlement.
 
-**`AccountOnboard`** (23 lines) — verbatim from `coti-io/coti-contracts` with the import
-repointed, so each test signer can obtain its own AES key. Deployed for completeness; the
-front end does **not** use it, because onboarding is owned by the COTI wallet plugin, which
-ships its own.
+### 6.2 `AccountOnboard`
+
+23 lines, verbatim from `coti-io/coti-contracts` with the import repointed, so each test
+signer can obtain its own AES key. Deployed for completeness; the front end does **not**
+use it, because onboarding is owned by the COTI wallet plugin, which ships its own.
 
 ## 7. Integration traps
 
@@ -423,7 +489,7 @@ the deployment record.
 | `PrivateToken` | [`0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
 | `MockPrivateIdentityRegistry` | [`0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
 | `MaxBalancePrivateCompliance` | [`0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
-| `RwaSubscription` | [`0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+| [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) | [`0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
 | Share price | 1.112439 | 1.044450 |
 
 Shares are 8dp.
@@ -432,7 +498,7 @@ Shares are 8dp.
 
 | Contract | Address | Note |
 | --- | --- | --- |
-| `AccountOnboard` | [`0x686035856C60D73843C839ad50eDC6c40385C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance; the front end does not use it (§6) |
+| [`AccountOnboard`](#62-accountonboard) | [`0x686035856C60D73843C839ad50eDC6c40385C825`](https://testnet.cotiscan.io/address/0x686035856C60D73843C839ad50eDC6c40385C825) | AES key issuance; the front end does not use it (§6.2) |
 | `USDC.e` | [`0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C`](https://testnet.cotiscan.io/address/0x63f3D2Cc8F5608F57ce6E5Aa3590A2Beb428D19C) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
 | `USDT` | [`0x9e961430053cd5AbB3b060544cEcCec848693Cf0`](https://testnet.cotiscan.io/address/0x9e961430053cd5AbB3b060544cEcCec848693Cf0) | Pre-existing testnet token. **Ordinary public ERC-20**, 6dp |
 
@@ -485,7 +551,7 @@ on-chain and unreadable.
 - **Four agent entry points are uncallable** and need `itUint256` (§7.1).
 - **Agents cannot read balances** — only frozen amounts, via `reencryptFrozenTokens`
   (§4.1).
-- **The subscription payment leg is public** (§6).
+- **The subscription payment leg is public** (§6.1).
 - **Nothing is audited.** 823k gas for one mint is a data point, not a cost model.
 - **Bytecode headroom is thin** — 22,309 of 24,576 bytes under Paris, ~2.3 KB left. More
   compliance will need library extraction.
