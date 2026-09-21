@@ -398,25 +398,6 @@ arrived through agent `batchMint` calls with no payment leg on chain at all: the
 paid first, off-chain, and trusted the issuer to mint afterwards. Here that exposure is
 gone.
 
-**One exception, and an issuer should know it.** `PrivateToken.mint` does **not** revert
-when compliance blocks a mint. It mints an encrypted zero, the same `mux` pattern as a
-blocked transfer (§4.5):
-
-```solidity
-gtBool transferAllowed = _tokenCompliance.canTransfer(address(0), _to, privateAmount);
-gtUint256 minted = MpcCore.mux(transferAllowed, _zero(), privateAmount);
-```
-
-Payment settles at step 4, *before* the mint at step 5. So a subscription that trips the
-compliance cap **takes the cash and delivers nothing, without reverting** — which is
-precisely the settlement risk DvP exists to remove.
-
-On the deployed funds this is latent rather than live. `maxBalance` reads `0` on both
-compliance contracts, and `_exceedsLimit` returns false whenever the limit is zero, so
-today every mint delivers in full. Set a per-investor cap and the hole opens. Closing it
-has to happen on the token side — `mint` returns nothing, so `subscribe` cannot inspect
-the result and revert on a zero delivery.
-
 #### Governance: it is a token agent, and that is the whole story
 
 The deploy script does one line that changes what this contract *is*:
