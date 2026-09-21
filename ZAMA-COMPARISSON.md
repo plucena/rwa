@@ -157,13 +157,8 @@ different sets of operators, and it is the one an institutional reviewer should 
    rolling accumulators and `TransferFees`.
 6. **No factory integration, no holder counting.** `TREXFactory` and `TREXGateway` know nothing
    about `PrivateToken`; every deployment is manual. Issuers deploy through the factory.
-7. **The commercial position is behind, not just the code.** Zama has been the **default
-   confidentiality layer of the T-REX Ledger since 24 March 2026**, sits on the ERC-3643 Association
-   beside DTCC, Deloitte, Tokeny and OpenZeppelin, and ships a 1:1 wrap path advertised as *"no
-   migration friction"*. COTI is not a member. The wrapper runs on InGen (chain `364301`), producing
-   blocks since April 2026.
 
-Items 2–6 are ordinary engineering. Item 1 is not, and item 7 is not engineering at all.
+Items 2–6 are ordinary engineering. Item 1 is not.
 
 ## What is *not* a differentiator either way
 
