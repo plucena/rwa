@@ -47,11 +47,61 @@ Under FHE the ciphertext persists because it is what you compute on. On COTI the
 cannot cross a transaction boundary, so every write calls `offBoardToUser` to name a reader and
 convert compute-form into storage-form.
 
-Two things below follow from this rather than from either team's choices. COTI's synchronous decrypt
-(advantage 4) and its short dependency surface (advantage 3) come from the MPC being in-protocol;
-Zama's relayer, gateway and KMS come from threshold decryption sitting outside it. And the diligence
-question is not the same question in each case — *is the lattice assumption sound* against *who runs
-the nodes and can they collude*.
+### How COTI's garbled circuits actually execute
+
+Worth drawing, because the shape of this picture *is* advantages 3 and 4 rather than a claim about
+them.
+
+```mermaid
+graph TB
+    C["Confidential contract<br/><i>Solidity, uses gt/ct types</i>"]
+    M["MpcCore.sol<br/><i>packs metaData, calls 0x64</i>"]
+    P["Precompile 0x64<br/><i>inside gcEVM — a geth fork</i>"]
+
+    subgraph EX["MPC executors"]
+        A["Executor A<br/><i>key share 1</i>"]
+        B["Executor B<br/><i>key share 2</i>"]
+        A <--> B
+    end
+
+    G["Garbler<br/><i>offline precompute</i>"]
+    GM["GC manager<br/><i>serves stored circuits</i>"]
+
+    C --> M
+    M --> P
+    P -->|"op + handles"| EX
+    EX -.->|"gt result"| P
+    G --> GM
+    GM --> EX
+```
+
+Following one operation down and back:
+
+1. **The contract is ordinary Solidity.** It declares `gtUint256` and `ctUint256` and calls
+   `MpcCore.add`, `mux`, `transfer`. No new language, no circuit to write.
+2. **`MpcCore.sol` is a library, not a service.** It packs a `bytes3`/`bytes5` tag naming each
+   operand's type and whether it is secret — `combineEnumsToBytes3(SUINT256_T, SUINT256_T, BOTH_SECRET)`
+   — then calls `ExtendedOperations(address(MPC_PRECOMPILE)).Add(metaData, lhs, rhs)` with the
+   operands as bare `uint256` handles.
+3. **`0x64` is not a contract.** `MpcInterface.sol:48` fixes `MPC_PRECOMPILE` at
+   `0x…0064`, a precompile compiled into **gcEVM**, COTI's geth fork. The MPC lives *in the node*,
+   in the execution path.
+4. **The executors do the work.** The precompile passes the opcode and handles to executors holding
+   **key shares**, which run the garbled-circuit protocol between them. Neither sees a plaintext
+   operand; neither alone can reconstruct one.
+5. **The circuits were garbled in advance.** A garbler precomputes them offline and a GC manager
+   serves them at execution time, so per-operation cost is lookup and evaluation rather than
+   generation.
+6. **The result returns as a `gt` handle to the same call**, which is why `MpcCore.decrypt` can
+   return in-transaction at all.
+
+Two consequences read straight off it. **Everything but the garbler pair sits inside the node** —
+there is no relayer, no gateway chain, no KMS in the live path, which is advantage 3 stated as
+topology. And **the return arrow closes inside the transaction**, which is advantage 4.
+
+The trust boundary is the executor set: confidentiality holds while key-share holders do not
+collude. Zama's equivalent boundary is the KMS threshold. That is the same question asked of two
+different sets of operators, and it is the one an institutional reviewer should ask of either.
 
 ---
 
