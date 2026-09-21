@@ -23,6 +23,36 @@ compliance evaluates on ciphertext inside the transfer, and there is one token.
 **Zama wraps.** An ERC-7984 confidential token takes `constructor(IToken erc3643Token_)`, holds the
 T-REX token and issues a parallel encrypted balance. Two tokens, with a `wrap`/`unwrap` boundary.
 
+### The cryptography underneath is also different
+
+Both get called "confidential", but they are not two brands of one primitive.
+
+**Zama is FHE.** The ciphertext *is* the computable object: it persists, anyone holding it plus an
+evaluation key computes on it non-interactively, and confidentiality reduces to a lattice hardness
+assumption. Amounts are `euint64` handles pointing at values held by an FHE coprocessor, with
+decryption thresholded across a KMS.
+
+**COTI is garbled circuits.** Not an encryption scheme but a protocol — the evaluator decrypts a row
+of a garbled truth table at every gate and never learns which plaintext a wire label carries, and a
+garbled circuit is single-use. Confidentiality rests on the computing parties **not colluding**.
+
+That shows up directly in the types. COTI needs two where FHE needs one:
+
+|  | COTI | Zama |
+| --- | --- | --- |
+| Computed on | `gtUint256` — a garbled handle, live only inside one transaction | the ciphertext itself |
+| Stored and read | `ctUint256` — an AES ciphertext with exactly one reader | the same ciphertext |
+
+Under FHE the ciphertext persists because it is what you compute on. On COTI the computable form
+cannot cross a transaction boundary, so every write calls `offBoardToUser` to name a reader and
+convert compute-form into storage-form.
+
+Two things below follow from this rather than from either team's choices. COTI's synchronous decrypt
+(advantage 4) and its short dependency surface (advantage 3) come from the MPC being in-protocol;
+Zama's relayer, gateway and KMS come from threshold decryption sitting outside it. And the diligence
+question is not the same question in each case — *is the lattice assumption sound* against *who runs
+the nodes and can they collude*.
+
 ---
 
 ## Advantages of the COTI implementation
