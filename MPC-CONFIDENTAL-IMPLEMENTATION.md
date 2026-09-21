@@ -385,6 +385,38 @@ in order:
 The caller must `approve` the payment token for this contract first. That is an ordinary
 ERC-20 approval, because the payment tokens are ordinary ERC-20s.
 
+#### Atomic delivery-versus-payment
+
+Steps 4 and 5 share **one transaction**, not merely one block, so EVM semantics make the
+cash leg and the delivery leg succeed or revert together. The investor never pays into a
+pending state, and the contract never custodies funds — payment goes straight to the
+treasury. Every rejection above reverts the whole call: `TokenNotAccepted`, `NotVerified`,
+`NothingToBuy` and `PaymentFailed` all leave no half-settled state behind.
+
+Measured against the incumbent flow, that is the gain. On Avalanche the whole DMF supply
+arrived through agent `batchMint` calls with no payment leg on chain at all: the investor
+paid first, off-chain, and trusted the issuer to mint afterwards. Here that exposure is
+gone.
+
+**One exception, and an issuer should know it.** `PrivateToken.mint` does **not** revert
+when compliance blocks a mint. It mints an encrypted zero, the same `mux` pattern as a
+blocked transfer (§4.5):
+
+```solidity
+gtBool transferAllowed = _tokenCompliance.canTransfer(address(0), _to, privateAmount);
+gtUint256 minted = MpcCore.mux(transferAllowed, _zero(), privateAmount);
+```
+
+Payment settles at step 4, *before* the mint at step 5. So a subscription that trips the
+compliance cap **takes the cash and delivers nothing, without reverting** — which is
+precisely the settlement risk DvP exists to remove.
+
+On the deployed funds this is latent rather than live. `maxBalance` reads `0` on both
+compliance contracts, and `_exceedsLimit` returns false whenever the limit is zero, so
+today every mint delivers in full. Set a per-investor cap and the hole opens. Closing it
+has to happen on the token side — `mint` returns nothing, so `subscribe` cannot inspect
+the result and revert on a zero delivery.
+
 #### Governance: it is a token agent, and that is the whole story
 
 The deploy script does one line that changes what this contract *is*:
@@ -677,6 +709,9 @@ on-chain and unreadable.
   renounce, no agent role, no pause, and it does not inherit `AgentRole` or `Ownable` the
   way every other contract in the stack does. Its only controls are `removeAgent` on the
   token and setting the price to zero.
+- **A compliance-blocked mint breaks DvP** (§6.1). `mint` returns an encrypted zero
+  instead of reverting, and payment has already settled by then, so a capped investor pays
+  and receives nothing. Latent while `maxBalance` is unset; live the moment a cap is.
 - **It runs on COTI Network, and only there.** Every contract calls `MpcCore` precompiles
   directly, so the stack is bound to chain `7082400`. Reaching an ordinary EVM chain —
   Base, Ethereum, an L2 — means
