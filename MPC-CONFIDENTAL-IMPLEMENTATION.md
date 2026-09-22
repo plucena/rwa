@@ -752,3 +752,7 @@ mock.
 **License.** The fork inherits **GPL-3.0** from ERC-3643. `contracts-private/` and `app/`
 are MIT-headered, but they import and link GPL-3.0 code — treat the deployed stack as
 GPL-3.0.
+
+**Next:** [`MPC-CONFIDENTIAL-KINESYS.md`](MPC-CONFIDENTIAL-KINESYS.md) — this stack scored
+against the eight privacy capabilities of Kinexys Project EPIC: one built, one partial,
+five TBD, and one that no amount of work reaches.
