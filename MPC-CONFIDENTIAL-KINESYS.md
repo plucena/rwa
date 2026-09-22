@@ -379,3 +379,7 @@ not a backlog. **Capability 7 is absent because no amount of work reaches it.**
 *Source: [`JPMC-Kinexys-Project-Epic-Whitepaper-2024.pdf`](JPMC-Kinexys-Project-Epic-Whitepaper-2024.pdf),
 pp. 31, 33–34, 42. The capability names are Kinexys'; the assessments are this
 repository's own.*
+
+**Next:** [`ZAMA-COMPARISSON.md`](ZAMA-COMPARISSON.md) — the other confidential ERC-3643,
+side by side: encrypt-in-place against a wrapper, 256-bit against 64-bit, and the one
+argument that survives the comparison.
