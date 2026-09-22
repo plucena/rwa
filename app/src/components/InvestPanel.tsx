@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { formatUnits, parseUnits, type Address } from 'viem';
-import { usePublicClient, useWalletClient } from 'wagmi';
+import { useState } from 'react';
+import { formatUnits, parseUnits } from 'viem';
 import type { Fund } from '../data/funds';
 import type { WalletState } from '../lib/useWallet';
-import {
-  DEPLOYMENT, ERC20_ABI, REGISTRY_ABI, SUBSCRIPTION_ABI, explorerTx,
-} from '../lib/contracts';
+import { useInvest } from '../lib/useFundContracts';
+import { PAYMENT_TOKENS, explorerTx, type Pay } from '../lib/contracts';
 
 type Tab = 'Invest' | 'Redeem' | 'Instant' | 'Bridge';
-type Pay = 'USDC' | 'USDT';
-
-const TOKENS = DEPLOYMENT.paymentTokens as Record<Pay, { address: string; decimals: number; symbol: string }>;
 
 export function InvestPanel({
   fund, wallet, onNeedOnboard, onDone,
@@ -20,40 +15,17 @@ export function InvestPanel({
   onNeedOnboard: () => void;
   onDone: () => void;
 }) {
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
-
   const [tab, setTab] = useState<Tab>('Invest');
   const [pay, setPay] = useState<Pay>('USDC');
   const [amount, setAmount] = useState('');
-  const [balance, setBalance] = useState<bigint | null>(null);
-  const [verified, setVerified] = useState<boolean | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const token = TOKENS[pay];
+  const { balance, subscribe } = useInvest(fund, wallet, pay);
+
+  const token = PAYMENT_TOKENS[pay];
   const live = Boolean(fund.contracts);
-
-  const refresh = useCallback(async () => {
-    if (!wallet.address || !live || !wallet.onCorrectChain || !publicClient) return;
-    try {
-      const [bal, isVerified] = await Promise.all([
-        publicClient.readContract({
-          address: token.address as Address, abi: ERC20_ABI,
-          functionName: 'balanceOf', args: [wallet.address as Address],
-        }),
-        publicClient.readContract({
-          address: fund.contracts!.registry as Address, abi: REGISTRY_ABI,
-          functionName: 'isVerified', args: [wallet.address as Address],
-        }),
-      ]);
-      setBalance(bal as bigint);
-      setVerified(isVerified as boolean);
-    } catch { /* testnet RPC is flaky; keep the previous values */ }
-  }, [wallet.address, wallet.onCorrectChain, token.address, fund.contracts, live, publicClient]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
 
   const shares = (() => {
     const px = fund.tokenPrice ?? 0;
@@ -68,79 +40,13 @@ export function InvestPanel({
 
   async function invest() {
     setErr(null); setDone(null);
-    if (!fund.contracts || !walletClient || !publicClient || !wallet.address) return;
 
     try {
-      const value = parseUnits(amount, token.decimals);
-      const account = wallet.address as Address;
-      const sub = fund.contracts.subscription as Address;
-
-      // ERC-3643 eligibility. The demo registry is open so the UI can self-register; a real
-      // deployment issues an ONCHAINID claim from a trusted issuer instead.
-      if (verified === false) {
-        setBusy('Registering eligibility…');
-        const hash = await walletClient.writeContract({
-          address: fund.contracts.registry as Address, abi: REGISTRY_ABI,
-          functionName: 'setVerified', args: [account, true], account, chain: null,
-        });
-        await publicClient.waitForTransactionReceipt({ hash });
-        setVerified(true);
-      }
-
-      // Never subscribe on an unconfirmed allowance. A failed read must mean "approve again",
-      // not "skip approving": `undefined < value` is false in JS rather than throwing, which
-      // silently walks past the approval and reverts inside the token instead.
-      const readAllowance = async (): Promise<bigint> => {
-        try {
-          const a = await publicClient.readContract({
-            address: token.address as Address, abi: ERC20_ABI,
-            functionName: 'allowance', args: [account, sub],
-          });
-          return typeof a === 'bigint' ? a : 0n;
-        } catch {
-          return 0n;
-        }
-      };
-
-      let allowance = await readAllowance();
-      if (allowance < value) {
-        // Some ERC-20s reject a non-zero-to-non-zero approval; clear it first when set.
-        if (allowance > 0n) {
-          setBusy(`Resetting ${pay} approval…`);
-          const reset = await walletClient.writeContract({
-            address: token.address as Address, abi: ERC20_ABI,
-            functionName: 'approve', args: [sub, 0n], account, chain: null,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: reset });
-        }
-
-        setBusy(`Approving ${pay}…`);
-        const hash = await walletClient.writeContract({
-          address: token.address as Address, abi: ERC20_ABI,
-          functionName: 'approve', args: [sub, value], account, chain: null,
-        });
-        await publicClient.waitForTransactionReceipt({ hash });
-
-        allowance = await readAllowance();
-        if (allowance < value) {
-          throw new Error(
-            `Approval did not take effect — allowance is ${formatUnits(allowance, token.decimals)} ${pay}, ` +
-            `need ${formatUnits(value, token.decimals)}. Try again.`,
-          );
-        }
-      }
-
-      setBusy('Subscribing…');
-      const hash = await walletClient.writeContract({
-        address: sub, abi: SUBSCRIPTION_ABI,
-        functionName: 'subscribe', args: [token.address as Address, value],
-        account, chain: null, gas: 8_000_000n,
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
+      const hash = await subscribe(parseUnits(amount, token.decimals), setBusy);
+      if (!hash) return;
 
       setDone(hash);
       setAmount('');
-      await refresh();
       onDone();
     } catch (e: any) {
       setErr(e?.shortMessage || e?.details || e?.message || 'Transaction failed');

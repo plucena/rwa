@@ -13,6 +13,11 @@ export const COTI_TESTNET = {
   explorer: 'https://testnet.cotiscan.io',
 };
 
+export type Pay = 'USDC' | 'USDT';
+
+export const PAYMENT_TOKENS =
+  DEPLOYMENT.paymentTokens as Record<Pay, { address: string; decimals: number; symbol: string }>;
+
 /** Fund shares use 8 decimals and are stored as ctUint256. */
 export const SHARE_DECIMALS = 8;
 export const SHARE_BITS = 256;

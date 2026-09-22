@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { Address } from 'viem';
-import { usePublicClient } from 'wagmi';
-import { usePrivateTokenBalance } from '@coti-io/coti-wallet-plugin';
+import { useState } from 'react';
 import type { Fund } from '../data/funds';
 import type { WalletState } from '../lib/useWallet';
-import {
-  COTI_TESTNET, PRIVATE_TOKEN_ABI, SHARE_BITS, SHARE_DECIMALS, explorerAddress,
-} from '../lib/contracts';
+import { useHolding } from '../lib/useFundContracts';
+import { explorerAddress } from '../lib/contracts';
 import { InvestPanel } from './InvestPanel';
 
 const usd = (n: number) => '$' + n.toLocaleString('en-US');
@@ -74,33 +70,8 @@ export function FundDetail({
 }: {
   fund: Fund; wallet: WalletState; onHome: () => void; onNeedOnboard: () => void;
 }) {
-  const publicClient = usePublicClient();
-  // Decryption lives in the plugin: it reads the ctUint256 and unwraps it with the session key.
-  const { fetchPrivateBalance } = usePrivateTokenBalance();
-
   const [tab, setTab] = useState('OVERVIEW');
-  const [holding, setHolding] = useState<string | null>(null);
-  const [supply, setSupply] = useState<string | null>(null);
-
-  const loadHolding = useCallback(async () => {
-    if (!fund.contracts || !wallet.address || !wallet.onCorrectChain) return;
-    try {
-      if (publicClient) {
-        const total = await publicClient.readContract({
-          address: fund.contracts.token as Address, abi: PRIVATE_TOKEN_ABI,
-          functionName: 'totalSupply',
-        });
-        setSupply((total as bigint).toString());
-      }
-      if (!wallet.aesKey) return setHolding(null);
-      setHolding(await fetchPrivateBalance(
-        wallet.address, wallet.aesKey, fund.contracts.token,
-        SHARE_BITS, SHARE_DECIMALS, COTI_TESTNET.chainId,
-      ));
-    } catch { /* testnet RPC is flaky; keep the previous value */ }
-  }, [fund.contracts, wallet.address, wallet.aesKey, wallet.onCorrectChain, publicClient, fetchPrivateBalance]);
-
-  useEffect(() => { void loadHolding(); }, [loadHolding]);
+  const { holding, supply, reload: loadHolding } = useHolding(fund, wallet);
 
   const TABS = ['OVERVIEW', 'DOCUMENTS', 'DEFI INTEGRATIONS', 'HOLDINGS', 'RISKS', 'SMART CONTRACTS'];
 
