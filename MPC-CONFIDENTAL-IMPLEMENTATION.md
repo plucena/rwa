@@ -35,16 +35,16 @@ this port can be read side by side. Every address links to cotiscan on COTI test
 (chain `7082400`).
 
 
-| ERC-3643 component        | In this port                                                                                                            | JTRSY                                                                                                | JAAA                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `Token`                   | `PrivateToken` — encrypted balances, 8dp                                                                               | [`0x6D7cf587…Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc…6732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
-| `IdentityRegistry`        | `MockPrivateIdentityRegistry` — **a stub** (§5)                                                                       | [`0x9Da490af…5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC851…a23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
-| `IdentityRegistryStorage` | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
-| `ClaimTopicsRegistry`     | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
-| `TrustedIssuersRegistry`  | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
-| `ModularCompliance`       | `MaxBalancePrivateCompliance` — **monolithic** (§4.4)                                                                 | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
-| **ONCHAINID**             | **absent**                                                                                                              | —                                                                                                   | —                                                                                                   |
-| `AgentRole` †             | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — **a bearer of the token's agent role, externalised into a contract**. Its primary-market function has no counterpart (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
+| ERC-3643 component        | In this port                                                                                                                                                                                        | JTRSY                                                                                                | JAAA                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Token`                   | `PrivateToken` — encrypted balances, 8dp                                                                                                                                                           | [`0x6D7cf587…Baf3`](https://testnet.cotiscan.io/address/0x6D7cf587dbF68eb233B7BEd1f45BDfB6aE31Baf3) | [`0x20b2C3cc…6732`](https://testnet.cotiscan.io/address/0x20b2C3cc4F7b4a5f727b1aa69779aD9C20036732) |
+| `IdentityRegistry`        | `MockPrivateIdentityRegistry` — **a stub** (§5)                                                                                                                                                   | [`0x9Da490af…5F37`](https://testnet.cotiscan.io/address/0x9Da490afb22cEb1B8aA82d2EC4418BB4A62e5F37) | [`0xC64DC851…a23E`](https://testnet.cotiscan.io/address/0xC64DC85109E823380ea4DE34b6ac1B22a02Ba23E) |
+| `IdentityRegistryStorage` | **absent**                                                                                                                                                                                          | —                                                                                                   | —                                                                                                   |
+| `ClaimTopicsRegistry`     | **absent**                                                                                                                                                                                          | —                                                                                                   | —                                                                                                   |
+| `TrustedIssuersRegistry`  | **absent**                                                                                                                                                                                          | —                                                                                                   | —                                                                                                   |
+| `ModularCompliance`       | `MaxBalancePrivateCompliance` — **monolithic** (§4.4)                                                                                                                                             | [`0xB5d2e888…28CB`](https://testnet.cotiscan.io/address/0xB5d2e8880005dCF84f13Fc58626d7F67734E28CB) | [`0x2abfd119…a531`](https://testnet.cotiscan.io/address/0x2abfd1194120fb2BDc2D3Fd8366C2979c7aea531) |
+| **ONCHAINID**             | **absent**                                                                                                                                                                                          | —                                                                                                   | —                                                                                                   |
+| `AgentRole` †            | [`RwaSubscription`](#61-rwasubscription--the-primary-issuance-till) — **a bearer of the token's agent role, externalised into a contract**. Its primary-market function has no counterpart (§6.1) | [`0x5cf23F0c…A98f`](https://testnet.cotiscan.io/address/0x5cf23F0cf6369477d1F267e5f9F281C3e6B8A98f) | [`0x0A1089dc…1bf9`](https://testnet.cotiscan.io/address/0x0A1089dc8b71E463c3AD89363058B5a07A7f1bf9) |
 
 † `AgentRole` is not one of the standard's seven deployable components, which is why it
 does not appear in [`ERC-3643-STANDARD.md`](ERC-3643-STANDARD.md) §2. It is a **base
@@ -443,16 +443,17 @@ ERC-3643's governance contract is
 inherit `AgentRoleUpgradeable`. `RwaSubscription` inherits nothing and reimplements
 ownership in four lines:
 
-| `AgentRole` / `Ownable` provides | In `RwaSubscription` |
-| --- | --- |
-| `Ownable`, ERC-173, by inheritance | hand-rolled `address public owner` |
-| `transferOwnership` | **absent** |
-| `renounceOwnership` | **absent** |
-| `OwnershipTransferred` event | **absent** |
+
+| `AgentRole` / `Ownable` provides       | In`RwaSubscription`                |
+| -------------------------------------- | ---------------------------------- |
+| `Ownable`, ERC-173, by inheritance     | hand-rolled`address public owner`  |
+| `transferOwnership`                    | **absent**                         |
+| `renounceOwnership`                    | **absent**                         |
+| `OwnershipTransferred` event           | **absent**                         |
 | `addAgent` / `removeAgent` / `isAgent` | **absent** — no role layer at all |
-| `AgentAdded` / `AgentRemoved` events | **absent** |
-| `onlyAgent` modifier | **absent** — only `onlyOwner` |
-| `pause` / `unpause` | **absent** |
+| `AgentAdded` / `AgentRemoved` events   | **absent**                         |
+| `onlyAgent` modifier                   | **absent** — only `onlyOwner`     |
+| `pause` / `unpause`                    | **absent**                         |
 
 #### What ERC-3643 ships instead
 
@@ -509,9 +510,8 @@ event is verbose, it is that **any** public payment leg plus a public price dete
 share count arithmetically. The encrypted `Transfer` protects the position from then on;
 it does not protect its acquisition.
 
-#### Closing it
-
 COTI already publishes confidential payment tokens — `PrivateBridgedUSDC` (**`p.USDC.e`**,
+
 6dp) and `PrivateTetherUSD` (**`p.USDT`**), both `PrivateERC20` subclasses. Settling the
 payment leg in one of those, or off-chain, is what closes this gap.
 
@@ -579,11 +579,12 @@ token**, and COTI's own tooling handles it without modification. `balanceOf` ret
 exactly the `ctUint256` shape that `PrivateERC20` returns, which is the shape the whole
 COTI stack is built around:
 
-| Tool | How it handles this token |
-| --- | --- |
+
+| Tool                                               | How it handles this token                                                                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **COTI MetaMask Snap** — `npm:@coti-io/coti-snap` | Holds the account's AES key and performs the decryption. It is key custody, not a balance viewer: it never enumerates or displays tokens |
-| **COTI privacy wallet** — `metamask.coti.io` | Built on that same Snap and the same `ctUint256` shape |
-| **`@coti-io/coti-wallet-plugin`** | Reads it unmodified through its `version: 256` path. Pass `decimals: 8` |
+| **COTI privacy wallet** — `metamask.coti.io`      | Built on that same Snap and the same`ctUint256` shape                                                                                    |
+| **`@coti-io/coti-wallet-plugin`**                  | Reads it unmodified through its`version: 256` path. Pass `decimals: 8`                                                                   |
 
 So an integrator's job is not to make an ERC-20 client cope. It is to use the COTI
 libraries, which already expect a 64-byte `balanceOf` and a holder-side AES key.
