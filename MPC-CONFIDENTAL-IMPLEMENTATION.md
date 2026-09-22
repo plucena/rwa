@@ -510,10 +510,34 @@ event is verbose, it is that **any** public payment leg plus a public price dete
 share count arithmetically. The encrypted `Transfer` protects the position from then on;
 it does not protect its acquisition.
 
-COTI already publishes confidential payment tokens — `PrivateBridgedUSDC` (**`p.USDC.e`**,
+COTI already publishes confidential payment tokens — `PrivateBridgedUSDC`
+(**`p.USDC.e`**, 6dp) and `PrivateTetherUSD` (**`p.USDT`**), both `PrivateERC20`
+subclasses. Settling the payment leg in one of those, or off-chain, is what closes this
+gap.
 
-6dp) and `PrivateTetherUSD` (**`p.USDT`**), both `PrivateERC20` subclasses. Settling the
-payment leg in one of those, or off-chain, is what closes this gap.
+**Swapping the payment token is necessary but not sufficient, and `RwaSubscription` cannot
+take one as it stands.** Three things in the contract are plaintext by type rather than by
+accident:
+
+- **The payment call would revert.** `IERC20Min.transferFrom` is declared `returns (bool)`
+  and `subscribe` checks that bool. `PrivateERC20`'s plaintext overload
+  `transferFrom(address,address,uint256)` returns nothing and is gated on
+  `publicAmountsEnabled`, so the decode fails on empty returndata. The confidential
+  overload takes `itUint256` and is a different selector entirely.
+- **The share count is computed in the clear.** `shares = paymentAmount * 1e8 / price` is
+  ordinary EVM arithmetic on a public argument. An encrypted payment arrives as
+  `itUint256`, so the multiply and divide have to move to `MpcCore` and `subscribe`'s own
+  signature has to change with them.
+- **`mint` has no encrypted form.** `IPrivateToken.mint(address,uint256)` takes a public
+  amount, and so does `PrivateToken._mint` beneath it. A public share count plus a public
+  price yields the payment amount by exactly the arithmetic that leaks it today — so
+  protecting the purchase means encrypting *both* legs, and the port's token cannot mint an
+  encrypted amount.
+
+So the fix is real but it is a contract change, not a configuration change: a `subscribe`
+that takes `itUint256`, MPC arithmetic for the share count, an encrypted `mint` on
+`PrivateToken`, and a `Subscribed` event carrying ciphertext instead of integers.
+Off-chain settlement closes the same gap without touching the token.
 
 ### 6.2 `AccountOnboard`
 
@@ -669,8 +693,10 @@ on-chain and unreadable.
 - **Four agent entry points are uncallable** and need `itUint256` (§7.1).
 - **Agents cannot read balances** — only frozen amounts, via `reencryptFrozenTokens`
   (§4.1).
-- **The subscription payment leg is public** (§6.1). Settling in `p.USDC.e` or `p.USDT`,
-  or off-chain, is what closes it.
+- **The subscription payment leg is public** (§6.1). Settling in `p.USDC.e` or `p.USDT`
+  closes it, but not as a drop-in: `subscribe` would need `itUint256`, MPC arithmetic for
+  the share count and an encrypted `mint` the token does not have. Off-chain settlement
+  closes it without a contract change.
 - **`RwaSubscription` has no governance surface** (§6.1) — no `transferOwnership`, no
   renounce, no agent role, no pause, and it does not inherit `AgentRole` or `Ownable` the
   way every other contract in the stack does. Its only controls are `removeAgent` on the
