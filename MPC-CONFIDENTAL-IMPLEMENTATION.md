@@ -454,22 +454,6 @@ ownership in four lines:
 | `onlyAgent` modifier | **absent** — only `onlyOwner` |
 | `pause` / `unpause` | **absent** |
 
-Three consequences, and the first is not this port's fault:
-
-- **Pausing the token does not stop issuance.** `PrivateToken.mint` is `onlyAgent` with no
-  `whenNotPaused` — and **upstream `Token.mint` is identical**, while `transfer` *is*
-  `whenNotPaused`. So this is inherited from ERC-3643. But in the standard it stays latent,
-  because the agent is a person who simply stops calling `mint`. Here the agent is a
-  contract with a public entry point, so "stop calling it" is not available to anyone:
-  pause the token and `subscribe` still mints.
-- **The repo is internally inconsistent.** Its sibling is
-  `contract MaxBalancePrivateCompliance is Ownable` — real OpenZeppelin `Ownable`, with
-  transfer and renounce. Same repo, same deployment, two different ownership models.
-- **Two kill switches exist, neither on this contract.** `token.removeAgent(subscription)`
-  stops minting outright, and `setPrice(paymentToken, 0)` makes `subscribe` revert
-  `TokenNotAccepted`. Both work — but one lives on another contract and the other is a
-  magic-value side effect, rather than the `pause()` an operator would go looking for.
-
 #### What ERC-3643 ships instead
 
 Two answers, because issuance and governance are different layers.
