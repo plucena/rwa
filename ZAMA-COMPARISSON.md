@@ -103,6 +103,113 @@ The trust boundary is the executor set: confidentiality holds while key-share ho
 collude. Zama's equivalent boundary is the KMS threshold. That is the same question asked of two
 different sets of operators, and it is the one an institutional reviewer should ask of either.
 
+### What the encryption actually is: keys, size, strength, time
+
+The section above is topology. This one is the primitives, because "both are confidential" hides
+four differences an institutional reviewer will ask about separately.
+
+**The evidence here is better than elsewhere in this document.** Tokeny's *wrapper* is still a 404,
+but Zama's *platform* is published, and a checkout of it sits in `research/fhevm/`. Every Zama fact
+below is read from that source, not inferred from an ABI. COTI's side is read from the vendored
+`MpcCore.sol` and from `coti-sdk-typescript`. Only the latency and off-chain-size figures are
+estimates, and they are marked as such.
+
+#### Keys and algorithms
+
+|  | COTI | Zama |
+| --- | --- | --- |
+| Scheme protecting stored data | **AES-128**, as a randomised pad | **TFHE** — lattice, via [TFHE-rs](https://github.com/zama-ai/tfhe-rs) |
+| Parameter set | — (AES is the whole of it) | `V1_5_META_PARAM_CPU_2_2_KS_PBS_PKE_TO_SMALL_ZKV2_TUNIFORM_2M128` |
+| The holder's key | one **128-bit AES key**, derived from a single wallet signature | **none** — no per-user FHE key exists |
+| Who can decrypt alone | the holder | **nobody**; decryption is a threshold protocol across the TKMS parties |
+| The key that computes | executor **key shares**, garbled-circuit protocol | a **public bootstrap key**, held by every coprocessor |
+| Can the compute key decrypt? | no — a share alone reconstructs nothing | no — "the bootstrap key itself does not allow any FHEVM node to decrypt" |
+
+Sources: `crypto_utils.ts:437-455`, `aesKey.ts` (*"expected 32 hex characters (128-bit)"*),
+`fhevm-engine-common/src/keys.rs:6`, `coprocessor/docs/fundamentals/overview.md:21,37`.
+
+#### The COTI ciphertext, exactly
+
+Worth spelling out, because "AES" alone would misdescribe it
+([`crypto_utils.ts:11-36`](https://github.com/coti-io/coti-sdk-typescript)):
+
+```
+r  ← 16 random bytes                    // fresh per value, per write
+ct ← AES-ECB(key, r)  XOR  plaintext    // plaintext zero-padded to 16 bytes
+stored: (ct ‖ r) = 32 bytes per 128-bit block
+```
+
+**`AES-ECB` appears in that code and it is not the weakness it looks like.** The cipher is never
+applied to plaintext — it is applied to a fresh random block `r`, and the result is used as a
+one-time pad. No plaintext block ever enters the cipher, so ECB's pattern leak cannot arise. It is
+a pad generator, not a mode over data, and `r` is stored alongside so the holder can regenerate the
+pad. The cost is that the ciphertext carries its own randomness: **2× expansion, always.**
+
+A 256-bit value is two such blocks — `struct ctUint256 { ctUint128 ciphertextHigh; ctUint128
+ciphertextLow; }` ([`MpcCore.sol:49`](private-ERC-3643-coti-port/tree/contracts/bubble/MpcCore.sol)) —
+which is exactly why `balanceOf` returns 64 bytes and breaks every ERC-20 client that reads 32
+([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) §7.2).
+
+#### Size — and why "smaller on chain" is not "smaller"
+
+|  | COTI | Zama |
+| --- | --- | --- |
+| On-chain, per encrypted balance | **64 bytes** — `ctUint256`, two × (16B pad ‖ 16B `r`) | **32 bytes** — `HANDLE_LEN = 32` |
+| What those bytes *are* | **the ciphertext itself** | **a pointer.** The ciphertext is not on chain |
+| Where the real ciphertext lives | on chain, in the storage slot | off-chain, in the coprocessor's database |
+| True ciphertext size | 64 bytes | **kilobytes** — TFHE ciphertext (estimate) |
+| Expansion over plaintext | **2×** | ~3 orders of magnitude (estimate) |
+| What a user submits | `itUint256` — ciphertext **+ a signature** | `externalEuint64` **+ a ZK proof of knowledge** |
+
+`HANDLE_LEN` is at `fhevm-engine-common/src/types.rs:1014`. The row that matters is the second:
+COTI's 64 bytes is the entire protected object, so a COTI chain carries its own confidentiality in
+state. Zama's 32 bytes is a handle, and **losing the coprocessor's database loses the balances** —
+the chain alone does not contain them. That is a different durability story, not merely a different
+byte count, and it is the one an issuer's operations team should be asked about.
+
+#### Cryptographic strength — two assumptions each, and they are not the same two
+
+|  | COTI | Zama |
+| --- | --- | --- |
+| Data **at rest** reduces to | AES-128 — standard, 128-bit symmetric | LWE/GLWE lattice hardness, 128-bit target |
+| Data **under computation** reduces to | **executors not colluding** — a trust assumption, not a hardness one | the same lattice assumption |
+| **Decryption** is gated by | possession of the holder's AES key | **threshold** agreement among TKMS parties |
+| Failure mode | executor collusion exposes values in those sessions | threshold breach exposes **everything ever encrypted** under that key |
+| Post-quantum | **AES-128 → ~64-bit under Grover** | lattice — believed PQ-secure |
+
+Two honest readings, and they point opposite ways.
+
+**In COTI's favour: the blast radius is bounded.** Garbled circuits are single-use and key shares
+are per-session, so a collusion event compromises what it touched. Zama's secret FHE key is
+long-lived and global — a threshold breach is **retroactive over the whole history**.
+
+**In Zama's favour: one of COTI's two assumptions is not cryptographic at all.** "The executors do
+not collude" is an operational claim about who runs the nodes. Lattice hardness is a mathematical
+one. A reviewer who weighs assumptions by kind, not by count, will prefer the latter — and will
+also note the post-quantum row, where AES-128's effective margin halves under Grover while TFHE is
+one of the schemes chosen *because* it is lattice-based.
+
+#### Time
+
+**No benchmark was run for this document**, and the figures below are internal estimates from
+`gcevm_vs_fhevm/PrivateERC20_vs_ERC7984_Comparison.md` (outside this repo),
+not measurements. What *is* verified is the shape, and the shape is the finding:
+
+|  | COTI | Zama |
+| --- | --- | --- |
+| Where the cost sits | **network** — round trips between executors | **compute** — bootstrapping, offloaded to coprocessors |
+| Per-gate cost | microseconds, but network-bound (~100 ms floor, est.) | heavy on CPU, scales with hardware |
+| Decrypt | **synchronous** — `MpcCore.decrypt` returns in-transaction | **asynchronous** — gateway round trip, then a callback |
+| Client-side cost to submit | sign a ciphertext | **generate a ZK proof** — seconds, blocking the UI (est.) |
+
+The verified half is the third row, and it is the one that reaches the contract design:
+COTI's synchronicity is why `RwaSubscription` can settle payment and mint encrypted shares in one
+atomic transaction, and why this port could delete upstream's async decrypt apparatus
+([`MPC-CONFIDENTAL-IMPLEMENTATION.md`](MPC-CONFIDENTAL-IMPLEMENTATION.md) §4.3). An equivalent
+wrapper on Zama cannot be atomic in that way — the round trip is outside the transaction. **That is
+an architectural consequence of the cryptography, not a speed contest**, and it survives whatever
+the benchmarks turn out to say.
+
 ---
 
 ## Advantages of the COTI implementation
