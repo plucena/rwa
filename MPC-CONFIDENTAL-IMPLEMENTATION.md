@@ -316,7 +316,7 @@ access control whatsoever** — anyone can verify anyone.
 
 For a demo that is the point; the flow is meant to be drivable. For anything else it means
 **the identity half of ERC-3643 is not implemented in this repository at all**. That half
-is, per §8 of the standard doc, the standard's strongest claim. Note also that the
+is, per §7 of the standard doc, the standard's strongest claim. Note also that the
 registry stays **cleartext by design** — `isVerified` returns a plain `bool` and
 `investorCountry` a plain `uint16`. Confidentiality here covers amounts, not eligibility.
 

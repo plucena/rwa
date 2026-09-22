@@ -23,11 +23,9 @@ every holder on the register. ERC-3643 moves that check on-chain and into the tr
 path itself, rather than leaving it to an off-chain transfer agent.
 
 It is the most widely adopted *standard* for permissioned tokens. That word matters —
-it is a standard with a reference implementation, not a product. Two things follow, and
-both catch people out:
-
-- **The canonical repository ships a skeleton, not a rulebook.** See §6.
-- **Governance and ownership have both moved** since the standard was written. See §7.
+it is a standard with a reference implementation, not a product. One thing follows, and
+it catches people out: **the canonical repository ships a skeleton, not a rulebook.**
+See §6.
 
 ---
 
@@ -175,7 +173,7 @@ Two details in that flow matter more than their size suggests.
 
 **`isVerified` is a loop, not a lookup.** Steps 2–11 run on every single transfer, and
 steps 5–10 repeat once per required claim topic. This is where ERC-3643's gas cost lives,
-and it is the direct price of the portable-credential model in §8.
+and it is the direct price of the portable-credential model in §7.
 
 **Step 17 is not a gate.** `transferred()` fires *after* the balance moves, so modules can
 update running state — period totals, cooldowns, holder counts. That post-hoc write is why
@@ -320,33 +318,7 @@ This is how a platform operator runs many tokens on one codebase — and it mean
 implementation authority address is a genuine control point worth checking on any
 deployment you are evaluating.
 
-## 7. The organisation has moved
-
-Three structural changes matter before reading any ERC-3643 code:
-
-**Governance left Tokeny.** The standard is run by the ERC-3643 Association; the
-canonical repository is `ERC-3643/ERC-3643`, forked from `TokenySolutions/T-REX`, which
-was **archived on 2026-07-15** with a final commit titled `🗑️ Deprecate repo (#254)`.
-
-**Tokeny left Tokeny.** Apex Group (~$3.5T assets under administration) took a majority
-stake in May 2025 with full ownership expected within three years. T-REX Ledger is now
-Apex's default multi-chain infrastructure, targeting $100B tokenized by June 2027.
-
-**Confidentiality has already been decided upstream.** On 24 March 2026 the T-REX Network
-named **Zama's FHE protocol the default confidentiality layer of the T-REX Ledger**, and
-that ledger's testnet has been producing blocks since 24 April 2026 with a confidential
-ERC-3643 wrapper on it.
-
-The last point is the one to hold in mind while reading this repository: **a confidential
-ERC-3643 is a problem someone else has already shipped a solution to.** The COTI port is
-an independent answer to the same question, not a first mover. The head-to-head is in
-[`ZAMA-COMPARISSON.md`](ZAMA-COMPARISSON.md), not here.
-
-*Provenance: the governance, ownership and Zama findings in this section come from the
-research write-up `Private_RWAs.md` (Addendum I and §6). The archived state of the T-REX
-repo and the empty module directory in v4.1.3 were re-verified directly.*
-
-## 8. The identity model is the real differentiator
+## 7. The identity model is the real differentiator
 
 Worth stating plainly, because it is what separates ERC-3643 from every issuer-registry
 design:
@@ -363,7 +335,7 @@ surface is heavier: because the token cannot assume a curated registry, it must 
 more at transfer time — which is precisely the work that becomes expensive under
 encryption.
 
-## 9. What the standard assumes that encryption breaks
+## 8. What the standard assumes that encryption breaks
 
 A checklist to read `MPC-CONFIDENTAL-IMPLEMENTATION.md` against. Each of these is load-bearing in
 plaintext ERC-3643:
@@ -377,7 +349,7 @@ plaintext ERC-3643:
 | Agents can **read** a holder's position to supervise | `getFrozenTokens`, `balanceOf` | Read access must now be granted explicitly, per reader, at write time |
 | Amounts are plain arguments in the ABI | every amount-taking function | Encrypted inputs need a signed, sender-bound ciphertext type |
 
-## 10. References
+## 9. References
 
 | Resource | Link |
 | --- | --- |
