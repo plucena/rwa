@@ -101,7 +101,7 @@ sequenceDiagram
     PC->>Chain: RwaSubscription.subscribe pulls payment, mints encrypted shares
     Hook->>PC: refresh balance and eligibility
     Hook-->>UI: tx hash
-    Note over UI: shows the explorer link; FundDetail reloads the holding
+    Note over UI: shows the explorer link, and FundDetail reloads the holding
 ```
 
 Each write returns as soon as the user signs; waiting for the receipt is a separate public-client
