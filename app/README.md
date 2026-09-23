@@ -154,6 +154,109 @@ anything about the UI.
 | Session key backup | `localStorage`, under `coti-rwa:aes-backup:<chainId>:<address>` |
 | Dev server | Port 5173, set in `vite.config.ts` |
 
+## Suggestions: a server-side transaction worker on AWS
+
+Nothing below is built. It sketches how the platform's *own* transactions — agent operations such
+as registry updates, price changes, redemptions or mints — could be executed by a TypeScript worker
+on AWS. Investor subscriptions stay where they are: signed in the browser by the investor's own
+wallet. A worker must never hold an investor's key.
+
+### The part that is not like other chains
+
+A worker on Ethereum signs one thing, the transaction. On COTI it signs **two**, and only the first
+is standard:
+
+1. **The transaction**, secp256k1 over the transaction digest, as anywhere else.
+2. **Each encrypted input** (`itUint`). The value is AES-encrypted with the *sender's* key, and the
+   ciphertext is signed as `keccak256(sender, contract, selector, ciphertext)` — a raw ECDSA sign of
+   that digest, serialised as `r || s || (v - 27)`. Not `personal_sign`, and `v` is 0/1 rather than
+   27/28.
+
+Two consequences worth designing around:
+
+- Both signatures are raw-digest ECDSA, so **one KMS-backed signer covers both**. KMS signs a digest
+  when called with `MessageType: DIGEST`, and in both cases you recover `v` yourself by trying both
+  recovery ids, since KMS doesn't return it.
+- Because an input is bound to sender, contract and selector but carries no nonce or expiry, a
+  **fee-bumped resend with identical calldata stays valid**. The reconciler can bump and rebroadcast
+  without rebuilding or re-encrypting anything.
+
+The reference implementation already exists in this repo:
+[`private-ERC-3643-coti-port/tree/test/token/helpers/cotiCrypto.ts`](../private-ERC-3643-coti-port/tree/test/token/helpers/cotiCrypto.ts)
+does the encryption, the input signing and the onboarding against `node-forge` directly. Port it,
+swapping its `SigningKey.signDigest` for a KMS call.
+
+### Library choices
+
+| Option | Fits | Watch out for |
+| --- | --- | --- |
+| **viem + a custom account** (suggested) | Public calls and transaction signing. Same library, and the same `parseAbi` ABIs, as this UI. | You supply the account yourself; viem only asks for `signTransaction` and friends. |
+| ethers v6 + a KMS signer package | Parity with the contract repo's deploy scripts, which use ethers through Hardhat. | Another library in the stack for no gain if the rest is viem. |
+| `@coti-io/coti-ethers` | The browser, which is what it targets. | Its input-signing path uses `signMessage` **because MetaMask cannot raw-sign**. Server-side you can raw-sign, so this is the wrong shape for a worker. |
+| `@coti-io/coti-sdk-typescript` | Encryption and onboarding primitives without the wallet layer. | Check what it expects to hold in memory; the AES key belongs in Secrets Manager, not in a long-lived global. |
+
+A KMS-backed account for viem is small — the whole COTI-specific part is recovering `v`:
+
+```ts
+// sketch: one signer for both transaction and itUint digests
+const account = toAccount({
+  address: signerAddress,
+  async signTransaction(tx) {
+    const digest = keccak256(serializeTransaction(tx));
+    return serializeTransaction(tx, await signDigestWithKms(digest)); // {r, s, v}
+  },
+  // ...signMessage / signTypedData as needed
+});
+```
+
+`signDigestWithKms` calls `kms:Sign` with `MessageType: DIGEST`, parses the DER answer into `r` and
+`s`, normalises `s` to the lower half of the curve order for EIP-2, then picks the recovery id whose
+recovered address equals the signer's. That same helper signs `itUint` digests.
+
+### Where the AES key comes from
+
+The worker's account needs its own COTI AES key before it can build encrypted inputs or read its own
+encrypted balances. Onboard the account once through `AccountOnboard` — the key is the XOR of the two
+shares the onboarding event returns — and keep the result in **Secrets Manager**, cached in memory
+for the life of the container and never logged. It is a 16-byte key tied to that one account: a new
+signer means a new onboarding, and rotation means onboarding a fresh account, granting it the agent
+role onchain, then revoking the old one.
+
+### Runtime shape
+
+| Piece | Suggestion |
+| --- | --- |
+| Queue | SQS FIFO, `MessageGroupId` = signer address, so one nonce lane is serialised for you |
+| Submitter | A Lambda per message group, signing and broadcasting one transaction, never waiting for confirmations |
+| Reconciler | A second Lambda on an EventBridge schedule, polling receipts and bumping fees |
+| State | Postgres or DynamoDB: the intent row, its status, the signed bytes and hash |
+| Bundling | esbuild (CDK's `NodejsFunction`, SAM or SST). viem tree-shakes well; `node-forge` and friends are the weight to watch |
+| Infra | CDK in TypeScript, so infra and worker share one language and one set of types |
+
+The full lifecycle argument — nonce lanes, stuck transactions, idempotency keys, DLQ alarms — is
+written up in the API repo's README rather than duplicated here.
+
+### Sharing the ABIs
+
+`src/lib/contracts.ts` is plain TypeScript with no browser dependency: `parseAbi` definitions,
+addresses from `deployment.json`, and nothing else. A worker should import or vendor that same file
+rather than restate any ABI, which is how the Express API consumes it today. One definition, one
+place to change after a redeploy.
+
+### Testing
+
+Keep the signer behind an interface so unit tests can stub it, and assert on the calldata that comes
+out of `encodeFunctionData` rather than on a live chain. MPC operations exist only on COTI, so
+anything touching encrypted values needs an integration test against testnet with a funded, onboarded
+account, exactly as the contract repo's private tests do. The testnet RPC drops requests, so give the
+worker the same retry treatment the rest of this project uses.
+
+### A reasonable first cut
+
+One signer key, one FIFO queue, one submitter Lambda, one reconciler on a one-minute schedule, the
+ported `cotiCrypto` helpers behind a `signDigestWithKms` function, and the AES key in Secrets
+Manager. Add lanes, Step Functions or Fargate only when something concrete demands them.
+
 ## One honest limitation
 
 **Subscriptions are not confidential; balances are.** USDC and USDT on COTI testnet are ordinary
